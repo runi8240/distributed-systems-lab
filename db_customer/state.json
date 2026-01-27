@@ -1,0 +1,22 @@
+{
+  "buyers": {
+    "1": {
+      "cart": {},
+      "name": "rutu",
+      "password": "rutuja",
+      "purchases": []
+    }
+  },
+  "next_ids": {
+    "buyer": 2,
+    "seller": 1
+  },
+  "sellers": {},
+  "sessions": {
+    "9ed1573f-680a-4a50-a7d6-4f0f5560c76e": {
+      "last_active": 1769501323.194332,
+      "role": "buyer",
+      "user_id": "1"
+    }
+  }
+}

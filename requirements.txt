@@ -1,0 +1,2 @@
+# This project currently uses only the Python standard library.
+# Add third-party deps here as needed.
