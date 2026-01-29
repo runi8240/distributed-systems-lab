@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db-customer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db-customer
+  template:
+    metadata:
+      labels:
+        app: db-customer
+    spec:
+      containers:
+        - name: db-customer
+          image: gcr.io/YOUR_PROJECT_ID/db-customer:latest
+          ports:
+            - containerPort: 6001
+          command:
+            [
+              "python3",
+              "db_customer/server.py",
+              "--host",
+              "0.0.0.0",
+              "--port",
+              "6001",
+              "--state",
+              "/data/state.json",
+            ]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-customer
+spec:
+  selector:
+    app: db-customer
+  ports:
+    - port: 6001
+      targetPort: 6001

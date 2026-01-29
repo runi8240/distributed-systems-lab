@@ -5,14 +5,40 @@
       "name": "rutu",
       "password": "rutuja",
       "purchases": []
+    },
+    "2": {
+      "cart": {},
+      "name": "buyer",
+      "password": "buyer",
+      "purchases": []
     }
   },
   "next_ids": {
-    "buyer": 2,
-    "seller": 1
+    "buyer": 3,
+    "seller": 2
   },
-  "sellers": {},
+  "sellers": {
+    "1": {
+      "feedback": {
+        "down": 0,
+        "up": 0
+      },
+      "items_sold": 0,
+      "name": "seller",
+      "password": "seller"
+    }
+  },
   "sessions": {
+    "22f35886-1f98-4c26-87b0-aba3baf9bd1b": {
+      "last_active": 1769663515.397439,
+      "role": "seller",
+      "user_id": "1"
+    },
+    "82f719b9-28c4-4e58-b36b-008194eba52b": {
+      "last_active": 1769663509.4043489,
+      "role": "buyer",
+      "user_id": "2"
+    },
     "9ed1573f-680a-4a50-a7d6-4f0f5560c76e": {
       "last_active": 1769501323.194332,
       "role": "buyer",

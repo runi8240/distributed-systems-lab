@@ -1,0 +1,54 @@
+services:
+  db_customer:
+    build:
+      context: .
+      dockerfile: db_customer/Dockerfile
+    ports:
+      - "6001:6001"
+
+  db_product:
+    build:
+      context: .
+      dockerfile: db_product/Dockerfile
+    ports:
+      - "6002:6002"
+
+  server_buyer:
+    build:
+      context: .
+      dockerfile: server_buyer/Dockerfile
+    depends_on:
+      - db_customer
+      - db_product
+    ports:
+      - "6003:6003"
+
+  server_seller:
+    build:
+      context: .
+      dockerfile: server_seller/Dockerfile
+    depends_on:
+      - db_customer
+      - db_product
+    ports:
+      - "6004:6004"
+
+  client_buyer:
+    build:
+      context: .
+      dockerfile: client_buyer/Dockerfile
+    depends_on:
+      - server_buyer
+    profiles: ["cli"]
+    stdin_open: true
+    tty: true
+
+  client_seller:
+    build:
+      context: .
+      dockerfile: client_seller/Dockerfile
+    depends_on:
+      - server_seller
+    profiles: ["cli"]
+    stdin_open: true
+    tty: true
