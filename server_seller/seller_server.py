@@ -53,6 +53,15 @@ def handle_request_factory(customer_host, customer_port, product_host, product_p
         )
         return resp
 
+    def require_session(data, request_id):
+        session_id = data.get("session_id")
+        if not session_id:
+            return None, _err({"request_id": request_id}, "NOT_LOGGED_IN", "session_id required")
+        sess = validate_session(session_id, request_id)
+        if not sess.get("ok"):
+            return None, sess
+        return sess["data"], None
+
     def handle(req: Dict[str, Any]):
         api = req.get("api")
         data = req.get("data") or {}
@@ -78,13 +87,10 @@ def handle_request_factory(customer_host, customer_port, product_host, product_p
             "UpdateUnitsForSale",
             "DisplayItemsForSale",
         ):
-            session_id = data.get("session_id")
-            if not session_id:
-                return _err(req, "NOT_LOGGED_IN", "session_id required")
-            sess = validate_session(session_id, request_id)
-            if not sess.get("ok"):
-                return sess
-            seller_id = sess["data"]["user_id"]
+            sess_data, err = require_session(data, request_id)
+            if err:
+                return err
+            seller_id = sess_data["user_id"]
 
             if api == "GetSellerRating":
                 return db_call(customer_host, customer_port, "GetSellerRating", {"seller_id": seller_id}, request_id)

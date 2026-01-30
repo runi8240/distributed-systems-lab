@@ -20,7 +20,7 @@ spec:
           command:
             [
               "python3",
-              "db_customer/server.py",
+              "db_customer/customer_server.py",
               "--host",
               "0.0.0.0",
               "--port",

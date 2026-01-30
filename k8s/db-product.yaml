@@ -20,7 +20,7 @@ spec:
           command:
             [
               "python3",
-              "db_product/server.py",
+              "db_product/product_server.py",
               "--host",
               "0.0.0.0",
               "--port",

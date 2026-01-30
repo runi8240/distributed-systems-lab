@@ -9,4 +9,4 @@ COPY . .
 
 EXPOSE 6004
 
-CMD ["python3", "server_seller/server.py", "--host", "0.0.0.0", "--port", "6004", "--customer-host", "db_customer", "--customer-port", "6001", "--product-host", "db_product", "--product-port", "6002"]
+CMD ["python3", "server_seller/seller_server.py", "--host", "0.0.0.0", "--port", "6004", "--customer-host", "db_customer", "--customer-port", "6001", "--product-host", "db_product", "--product-port", "6002"]

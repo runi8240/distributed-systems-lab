@@ -28,10 +28,10 @@ Each response:
 From `distributed-systems-lab/`:
 
 ```bash
-python3 db_customer/server.py --host 127.0.0.1 --port 6001 --state db_customer/state.json
-python3 db_product/server.py --host 127.0.0.1 --port 6002 --state db_product/state.json
-python3 server_buyer/server.py --host 127.0.0.1 --port 6003 --customer-host 127.0.0.1 --customer-port 6001 --product-host 127.0.0.1 --product-port 6002
-python3 server_seller/server.py --host 127.0.0.1 --port 6004 --customer-host 127.0.0.1 --customer-port 6001 --product-host 127.0.0.1 --product-port 6002
+python3 db_customer/customer_server.py --host 127.0.0.1 --port 6001 --state db_customer/state.db
+python3 db_product/product_server.py --host 127.0.0.1 --port 6002 --state db_product/state.db
+python3 server_buyer/buyer_server.py --host 127.0.0.1 --port 6003 --customer-host 127.0.0.1 --customer-port 6001 --product-host 127.0.0.1 --product-port 6002
+python3 server_seller/seller_server.py --host 127.0.0.1 --port 6004 --customer-host 127.0.0.1 --customer-port 6001 --product-host 127.0.0.1 --product-port 6002
 ```
 
 Buyer CLI:
@@ -62,5 +62,5 @@ If keywords are provided, return items in the category with **at least one** key
 
 ## Notes
 - Session timeout is 5 minutes (enforced in `db_customer`).
-- Frontends are stateless; all persistent data is stored in `db_customer/state.json` and `db_product/state.json`.
+- Frontends are stateless; all persistent data is stored in `db_customer/state.db` and `db_product/state.db`.
 - `MakePurchase` is intentionally not implemented per PA1.
