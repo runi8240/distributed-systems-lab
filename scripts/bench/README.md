@@ -11,6 +11,16 @@ Run all three scenarios (1, 10, 100 buyers/sellers), 10 runs each:
 python3 scripts/bench/run_scenarios.py
 ```
 
+Run a single scenario:
+```bash
+python3 scripts/bench/run_scenarios.py --scenario 1
+```
+
+Run multiple specific scenarios:
+```bash
+python3 scripts/bench/run_scenarios.py --scenario 1 --scenario 3
+```
+
 Custom ports or runs:
 ```bash
 python3 scripts/bench/run_scenarios.py --buyer-host 127.0.0.1 --buyer-port 6003 --seller-host 127.0.0.1 --seller-port 6004 --runs 10 --ops-per-client 1000

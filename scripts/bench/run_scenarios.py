@@ -301,6 +301,13 @@ def main():
     parser.add_argument("--runs", type=int, default=10)
     parser.add_argument("--ops-per-client", type=int, default=1000)
     parser.add_argument("--category", type=int, default=1)
+    parser.add_argument(
+        "--scenario",
+        action="append",
+        type=int,
+        choices=[1, 2, 3],
+        help="Run specific scenario(s). Repeatable. Default: all scenarios.",
+    )
     args = parser.parse_args()
 
     scenarios = [
@@ -309,7 +316,11 @@ def main():
         ("scenario_3", 100, 100),
     ]
 
+    selected = {f"scenario_{i}" for i in args.scenario} if args.scenario else None
+
     for name, buyers, sellers in scenarios:
+        if selected and name not in selected:
+            continue
         result = _run_scenario(
             name,
             args.buyer_host,
