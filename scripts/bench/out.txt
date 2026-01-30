@@ -1,0 +1,3 @@
+scenario_1: avg_response_time=0.000419s avg_throughput=3860.43 ops/s (clients=2 runs=10 ops_per_client=1000)
+scenario_2: avg_response_time=0.003157s avg_throughput=5977.92 ops/s (clients=20 runs=10 ops_per_client=1000)
+scenario_3: avg_response_time=0.092784s avg_throughput=2137.57 ops/s (clients=200 runs=10 ops_per_client=1000)

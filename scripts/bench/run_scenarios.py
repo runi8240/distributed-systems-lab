@@ -50,7 +50,7 @@ def _send_with_retries(host, port, sock, api, data):
     for _ in range(RETRY_ATTEMPTS):
         try:
             return _request_on_socket(sock, api, data), sock
-        except ConnectionError as exc:
+        except (ConnectionError, OSError) as exc:
             last_exc = exc
             try:
                 sock.close()
@@ -172,7 +172,7 @@ def _buyer_worker(host, port, ops, barrier, timings, category):
                     "SearchItemsForSale",
                     {"keywords": ["book"], "category": category},
                 )
-            except ConnectionError:
+            except (ConnectionError, OSError):
                 resp, sock = _send_with_retries(
                     host,
                     port,
@@ -203,7 +203,7 @@ def _seller_worker(host, port, session_id, item_id, ops, barrier, timings):
                     "ChangeItemPrice",
                     {"session_id": session_id, "item_id": item_id, "price": price},
                 )
-            except ConnectionError:
+            except (ConnectionError, OSError):
                 resp, sock = _send_with_retries(
                     host,
                     port,
