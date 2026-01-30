@@ -1,4 +1,4 @@
-# PA1 Scaffold (Python + TCP)
+# Distributed Systems Lab1
 
 This scaffold implements length-prefixed JSON over raw TCP with **file-backed** JSON storage in the backend DB services. Frontend servers are stateless and store no persistent per-user state.
 
