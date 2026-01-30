@@ -1,66 +1,39 @@
-# Distributed Systems Lab1
+## System Summary
 
-This scaffold implements length-prefixed JSON over raw TCP with **file-backed** JSON storage in the backend DB services. Frontend servers are stateless and store no persistent per-user state.
+We have built a system which implements an online marketplace with a buyer and seller with four backend services - db_customer, db_product, server_buyer, and server_seller
 
-## Structure
-- `common/` shared protocol + TCP helpers
-- `db_customer/` customer DB service (buyers, sellers, sessions, carts)
-- `db_product/` product DB service (items, search)
-- `server_buyer/` stateless buyer frontend server
-- `server_seller/` stateless seller frontend server
-- `client_buyer/` CLI buyer client
-- `client_seller/` CLI seller client
+![System Summary](docs/system-diagram.png)
 
-## Wire Protocol
-- 4-byte big-endian length prefix
-- UTF-8 JSON payload
+Clients talk to the buyer and seller frontends, which forward requests to the above services using JSON over TCP - All communication is done on TCP
 
-Each request:
-```json
-{"type":"Request","request_id":"1","api":"Login","data":{...}}
-```
-Each response:
-```json
-{"type":"Response","request_id":"1","ok":true,"error":null,"data":{...}}
-```
+Each service runs in its own process and can be deployed on separate hosts. For our experiments, we ran it on the same hosts on different ports.
 
-## Run (local)
-From `distributed-systems-lab/`:
+The evaluation script is in scripts/bench. We measure average response time and throughput across many runs (that script is highly modular for testing different scenarios)
 
-```bash
-python3 db_customer/customer_server.py --host 127.0.0.1 --port 6001 --state db_customer/state.db
-python3 db_product/product_server.py --host 127.0.0.1 --port 6002 --state db_product/state.db
-python3 server_buyer/buyer_server.py --host 127.0.0.1 --port 6003 --customer-host 127.0.0.1 --customer-port 6001 --product-host 127.0.0.1 --product-port 6002
-python3 server_seller/seller_server.py --host 127.0.0.1 --port 6004 --customer-host 127.0.0.1 --customer-port 6001 --product-host 127.0.0.1 --product-port 6002
-```
+We also include lightweight API smoke tests in `tests/` that spin up in-process servers and exercise backend and frontend flows over TCP. These tests cover customer and product DB APIs and buyer and seller frontend APIs, including account creation, login and session validation, item registration and search, cart updates, and feedback, rating paths
 
-Buyer CLI:
-```bash
-python3 client_buyer/cli.py --host 127.0.0.1 --port 6003
-```
-Seller CLI:
-```bash
-python3 client_seller/cli.py --host 127.0.0.1 --port 6004
-```
+Containerization information is present in Dockerfiles for local runs and in `k8s\` for deployment on GCP.
 
-## CLI Commands
-- `create <name> <password>`
-- `login <name> <password>`
-- `logout`
-- `api <API> <json>`
-- `session <session_id>`
+### Benchmark Scenarios
 
-Example:
-```
-create alice pass123
-login alice pass123
-api SearchItemsForSale {"category":1,"keywords":["book"]}
-```
+The benchmark script `scripts/bench/run_scenarios.py` runs three predefined load levels: scenario 1 (1 buyer + 1 seller), scenario 2 (10 buyers + 10 sellers), and scenario 3 (100 buyers + 100 sellers). Each scenario repeats multiple runs (10), and each client performs 1000 API calls per run.
 
-## Search Semantics
-If keywords are provided, return items in the category with **at least one** keyword match, ordered by descending match count. If no keywords, return all items in that category with quantity > 0.
+Within each scenario, seller clients create accounts, log in, register an item, and then repeatedly toggle the item price (`ChangeItemPrice`). Buyer clients repeatedly call `SearchItemsForSale`. All buyer and seller threads start together, and the script measures per-request latency and overall throughput.
 
-## Notes
-- Session timeout is 5 minutes (enforced in `db_customer`).
-- Frontends are stateless; all persistent data is stored in `db_customer/state.db` and `db_product/state.db`.
-- `MakePurchase` is intentionally not implemented per PA1.
+### Performance Report
+
+The performance is analyzed in the [Performance Report File](REPORT.md)
+
+### Stateless Frontend
+
+The buyer and seller frontends are intentionally stateless: they do not keep persistent per-user or cross-request data in memory (e.g., sessions, carts, or item metadata). Any state that must survive reconnects or frontend restarts is stored in the backend databases (customer and product dbs).
+
+
+
+### Assumptions 
+
+
+* Services are reachable on ports 6001–6004
+* Docker Compose is used for local deployment, and clients can open enough sockets for concurrency
+* Kubernetes and Google Compute Engine is used for deployment on Google cloud
+* Network communication is reliable TCP

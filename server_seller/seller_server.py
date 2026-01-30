@@ -41,6 +41,7 @@ def handle_request_factory(customer_host, customer_port, product_host, product_p
                 "api": api,
                 "data": data,
             },
+            reuse_socket=True,
         )
 
     def validate_session(session_id, request_id):
