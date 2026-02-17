@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 _ROOT = os.path.dirname(os.path.dirname(__file__))
 if _ROOT not in sys.path:
-    sys.path.append(_ROOT)
+    sys.path.insert(0, _ROOT)
 
 from common.tcp_client import tcp_request
 from common.tcp_server import run_server

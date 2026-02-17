@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 _ROOT = os.path.dirname(os.path.dirname(__file__))
 if _ROOT not in sys.path:
-    sys.path.append(_ROOT)
+    sys.path.insert(0, _ROOT)
 
 from common.tcp_server import run_server
 

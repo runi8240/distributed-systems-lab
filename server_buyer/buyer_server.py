@@ -1,10 +1,11 @@
 import os
 import sys
+import threading
 from typing import Any, Dict
 
 _ROOT = os.path.dirname(os.path.dirname(__file__))
 if _ROOT not in sys.path:
-    sys.path.append(_ROOT)
+    sys.path.insert(0, _ROOT)
 
 from common.tcp_client import tcp_request
 from common.tcp_server import run_server
@@ -31,6 +32,9 @@ def _err(req, code, message):
 
 
 def handle_request_factory(customer_host, customer_port, product_host, product_port):
+    session_carts: Dict[str, Dict[str, int]] = {}
+    carts_lock = threading.Lock()
+
     def db_call(host, port, api, data, request_id):
         return tcp_request(
             host,
@@ -63,6 +67,27 @@ def handle_request_factory(customer_host, customer_port, product_host, product_p
             return None, sess
         return sess["data"], None
 
+    def get_session_cart(session_id: str, buyer_id: int, request_id: Any):
+        with carts_lock:
+            existing = session_carts.get(session_id)
+            if existing is not None:
+                return dict(existing), None
+        resp = db_call(customer_host, customer_port, "GetCart", {"buyer_id": buyer_id}, request_id)
+        if not resp.get("ok"):
+            return None, resp
+        cart = {str(item_id): int(qty) for item_id, qty in resp.get("data", {}).get("cart", {}).items()}
+        with carts_lock:
+            session_carts[session_id] = dict(cart)
+        return cart, None
+
+    def set_session_cart(session_id: str, cart: Dict[str, int]):
+        with carts_lock:
+            session_carts[session_id] = dict(cart)
+
+    def clear_session_cart(session_id: str):
+        with carts_lock:
+            session_carts.pop(session_id, None)
+
     def handle(req: Dict[str, Any]):
         api = req.get("api")
         data = req.get("data") or {}
@@ -79,7 +104,11 @@ def handle_request_factory(customer_host, customer_port, product_host, product_p
             return db_call(customer_host, customer_port, "Login", payload, request_id)
 
         if api == "Logout":
-            return db_call(customer_host, customer_port, "Logout", {"session_id": data.get("session_id")}, request_id)
+            session_id = data.get("session_id")
+            resp = db_call(customer_host, customer_port, "Logout", {"session_id": session_id}, request_id)
+            if resp.get("ok") and session_id:
+                clear_session_cart(str(session_id))
+            return resp
 
         if api in ("SearchItemsForSale", "GetItem"):
             mapped = {
@@ -102,6 +131,7 @@ def handle_request_factory(customer_host, customer_port, product_host, product_p
             if err:
                 return err
             buyer_id = sess_data["user_id"]
+            session_id = str(data.get("session_id"))
 
             if api == "AddItemToCart":
                 item_id = data.get("item_id")
@@ -113,35 +143,61 @@ def handle_request_factory(customer_host, customer_port, product_host, product_p
                     return avail
                 if not avail["data"]["ok"]:
                     return _err(req, "OUT_OF_STOCK", "requested quantity not available")
-                return db_call(
-                    customer_host,
-                    customer_port,
-                    "UpdateCart",
-                    {"buyer_id": buyer_id, "item_id": item_id, "quantity_delta": qty},
-                    request_id,
-                )
+                cart, load_err = get_session_cart(session_id, buyer_id, request_id)
+                if load_err:
+                    return load_err
+                new_qty = int(cart.get(item_id, 0)) + qty
+                cart[item_id] = new_qty
+                set_session_cart(session_id, cart)
+                return _ok(req, {"item_id": item_id, "quantity": new_qty})
 
             if api == "RemoveItemFromCart":
                 item_id = data.get("item_id")
                 qty = int(data.get("quantity", 0))
                 if not item_id or qty <= 0:
                     return _err(req, "INVALID_ARGUMENT", "item_id and positive quantity required")
-                return db_call(
-                    customer_host,
-                    customer_port,
-                    "UpdateCart",
-                    {"buyer_id": buyer_id, "item_id": item_id, "quantity_delta": -qty},
-                    request_id,
-                )
+                cart, load_err = get_session_cart(session_id, buyer_id, request_id)
+                if load_err:
+                    return load_err
+                cur_qty = int(cart.get(item_id, 0))
+                new_qty = cur_qty - qty
+                if new_qty < 0:
+                    return _err(req, "INVALID_ARGUMENT", "cart quantity cannot be negative")
+                if new_qty == 0:
+                    cart.pop(item_id, None)
+                else:
+                    cart[item_id] = new_qty
+                set_session_cart(session_id, cart)
+                return _ok(req, {"item_id": item_id, "quantity": max(new_qty, 0)})
 
             if api == "SaveCart":
+                cart, load_err = get_session_cart(session_id, buyer_id, request_id)
+                if load_err:
+                    return load_err
+                clear_resp = db_call(customer_host, customer_port, "ClearCart", {"buyer_id": buyer_id}, request_id)
+                if not clear_resp.get("ok"):
+                    return clear_resp
+                for item_id, qty in cart.items():
+                    upd = db_call(
+                        customer_host,
+                        customer_port,
+                        "UpdateCart",
+                        {"buyer_id": buyer_id, "item_id": item_id, "quantity_delta": int(qty)},
+                        request_id,
+                    )
+                    if not upd.get("ok"):
+                        return upd
                 return db_call(customer_host, customer_port, "SaveCart", {"buyer_id": buyer_id}, request_id)
 
             if api == "ClearCart":
-                return db_call(customer_host, customer_port, "ClearCart", {"buyer_id": buyer_id}, request_id)
+                set_session_cart(session_id, {})
+                return _ok(req, {"cleared": True})
 
             if api == "DisplayCart":
-                return db_call(customer_host, customer_port, "GetCart", {"buyer_id": buyer_id}, request_id)
+                cart, load_err = get_session_cart(session_id, buyer_id, request_id)
+                if load_err:
+                    return load_err
+                return _ok(req, {"cart": cart})
 
             if api == "ProvideFeedback":
                 return db_call(product_host, product_port, "ProvideFeedback", data, request_id)

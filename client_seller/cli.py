@@ -3,7 +3,7 @@ import sys
 
 _ROOT = os.path.dirname(os.path.dirname(__file__))
 if _ROOT not in sys.path:
-    sys.path.append(_ROOT)
+    sys.path.insert(0, _ROOT)
 
 from common.cli import repl
 
