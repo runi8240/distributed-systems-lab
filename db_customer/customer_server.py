@@ -61,7 +61,8 @@ def _init_db(conn: sqlite3.Connection) -> None:
             id INTEGER PRIMARY KEY,
             name TEXT,
             password TEXT,
-            purchases_count INTEGER DEFAULT 0
+            purchases_count INTEGER DEFAULT 0,
+            cart_saved INTEGER DEFAULT 0
         )
         """
     )
@@ -97,6 +98,10 @@ def _init_db(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    # Backfill older DBs created before `cart_saved` existed.
+    buyer_cols = [r[1] for r in conn.execute("PRAGMA table_info(buyers)").fetchall()]
+    if "cart_saved" not in buyer_cols:
+        conn.execute("ALTER TABLE buyers ADD COLUMN cart_saved INTEGER DEFAULT 0")
     conn.commit()
 
 
@@ -169,6 +174,26 @@ def handle_request_factory(state_path: str):
             if not session_id:
                 return _err(req, "INVALID_ARGUMENT", "session_id required")
             with lock:
+                cur = conn.execute(
+                    "SELECT role, user_id FROM sessions WHERE session_id = ?",
+                    (session_id,),
+                )
+                sess = cur.fetchone()
+                if sess:
+                    role, user_id = sess
+                    if role == "buyer":
+                        buyer_id = int(user_id)
+                        cur = conn.execute(
+                            "SELECT cart_saved FROM buyers WHERE id = ?",
+                            (buyer_id,),
+                        )
+                        buyer_row = cur.fetchone()
+                        cart_saved = int(buyer_row[0]) if buyer_row else 0
+                        if cart_saved == 0:
+                            conn.execute(
+                                "DELETE FROM cart_items WHERE buyer_id = ?",
+                                (buyer_id,),
+                            )
                 conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
                 conn.commit()
                 return _ok(req, {"logged_out": True})
@@ -264,6 +289,8 @@ def handle_request_factory(state_path: str):
                         """,
                         (buyer_id, item_id, new_qty),
                     )
+                # Any cart mutation makes the cart unsaved until SaveCart is called.
+                conn.execute("UPDATE buyers SET cart_saved = 0 WHERE id = ?", (buyer_id,))
                 conn.commit()
                 return _ok(req, {"item_id": item_id, "quantity": max(new_qty, 0)})
 
@@ -274,8 +301,20 @@ def handle_request_factory(state_path: str):
                     return err
                 buyer_id = int(row[0])
                 conn.execute("DELETE FROM cart_items WHERE buyer_id = ?", (buyer_id,))
+                conn.execute("UPDATE buyers SET cart_saved = 0 WHERE id = ?", (buyer_id,))
                 conn.commit()
                 return _ok(req, {"cleared": True})
+
+        if api == "SaveCart":
+            buyer_id = data.get("buyer_id")
+            with lock:
+                row, err = _get_user_row(conn, "buyers", buyer_id, req, "buyer not found")
+                if err:
+                    return err
+                buyer_id = int(row[0])
+                conn.execute("UPDATE buyers SET cart_saved = 1 WHERE id = ?", (buyer_id,))
+                conn.commit()
+                return _ok(req, {"saved": True})
 
         return _err(req, "UNIMPLEMENTED", f"unknown api {api}")
 

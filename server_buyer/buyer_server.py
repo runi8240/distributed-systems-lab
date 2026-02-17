@@ -135,7 +135,7 @@ def handle_request_factory(customer_host, customer_port, product_host, product_p
                 )
 
             if api == "SaveCart":
-                return _ok(req, {"saved": True})
+                return db_call(customer_host, customer_port, "SaveCart", {"buyer_id": buyer_id}, request_id)
 
             if api == "ClearCart":
                 return db_call(customer_host, customer_port, "ClearCart", {"buyer_id": buyer_id}, request_id)
