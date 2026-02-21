@@ -94,6 +94,11 @@ class CustomerDBServiceStub(object):
                 request_serializer=marketplace__pb2.SaveCartRequest.SerializeToString,
                 response_deserializer=marketplace__pb2.SaveCartResponse.FromString,
                 _registered_method=True)
+        self.ClearAndSaveCart = channel.unary_unary(
+                '/marketplace.CustomerDBService/ClearAndSaveCart',
+                request_serializer=marketplace__pb2.ClearAndSaveCartRequest.SerializeToString,
+                response_deserializer=marketplace__pb2.ClearAndSaveCartResponse.FromString,
+                _registered_method=True)
 
 
 class CustomerDBServiceServicer(object):
@@ -171,6 +176,12 @@ class CustomerDBServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ClearAndSaveCart(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_CustomerDBServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -233,6 +244,11 @@ def add_CustomerDBServiceServicer_to_server(servicer, server):
                     servicer.SaveCart,
                     request_deserializer=marketplace__pb2.SaveCartRequest.FromString,
                     response_serializer=marketplace__pb2.SaveCartResponse.SerializeToString,
+            ),
+            'ClearAndSaveCart': grpc.unary_unary_rpc_method_handler(
+                    servicer.ClearAndSaveCart,
+                    request_deserializer=marketplace__pb2.ClearAndSaveCartRequest.FromString,
+                    response_serializer=marketplace__pb2.ClearAndSaveCartResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -559,6 +575,33 @@ class CustomerDBService(object):
             '/marketplace.CustomerDBService/SaveCart',
             marketplace__pb2.SaveCartRequest.SerializeToString,
             marketplace__pb2.SaveCartResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ClearAndSaveCart(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/marketplace.CustomerDBService/ClearAndSaveCart',
+            marketplace__pb2.ClearAndSaveCartRequest.SerializeToString,
+            marketplace__pb2.ClearAndSaveCartResponse.FromString,
             options,
             channel_credentials,
             insecure,

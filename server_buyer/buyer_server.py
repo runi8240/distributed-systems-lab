@@ -308,13 +308,9 @@ def create_app(customer_host: str, customer_port: int, product_host: str, produc
             updated_items.append((str(item_id), int(qty)))
 
         warnings = []
-        clear_resp = customer_db.call("ClearCart", {"buyer_id": buyer_id, "session_id": session_id}, req_id)
-        if not clear_resp.get("ok"):
-            warnings.append("purchase completed, but failed to clear session cart")
-        else:
-            save_resp = customer_db.call("SaveCart", {"buyer_id": buyer_id, "session_id": session_id}, req_id)
-            if not save_resp.get("ok"):
-                warnings.append("purchase completed, but failed to persist cleared cart")
+        clear_save_resp = customer_db.call("ClearAndSaveCart", {"buyer_id": buyer_id, "session_id": session_id}, req_id)
+        if not clear_save_resp.get("ok"):
+            warnings.append("purchase completed, but failed to clear cart")
 
         return _resp_to_http(
             {

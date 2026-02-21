@@ -415,6 +415,30 @@ def handle_request_factory(state_path: str):
                 conn.commit()
                 return _ok(req, {"saved": True})
 
+        if api == "ClearAndSaveCart":
+            buyer_id = data.get("buyer_id")
+            session_id = data.get("session_id")
+            with lock:
+                row, err = _get_user_row(conn, "buyers", buyer_id, req, "buyer not found")
+                if err:
+                    return err
+                buyer_id = int(row[0])
+                # Clear durable cart unconditionally
+                conn.execute("DELETE FROM cart_items WHERE buyer_id = ?", (buyer_id,))
+                # Clear session cart if session exists
+                if session_id:
+                    cart_initialized, err = _validate_buyer_session(session_id, buyer_id, req)
+                    if err:
+                        return err
+                    if cart_initialized == 1:
+                        conn.execute("DELETE FROM session_cart_items WHERE session_id = ?", (session_id,))
+                    else:
+                        # Initialize the session as empty so future reads use (empty) session cart
+                        conn.execute("DELETE FROM session_cart_items WHERE session_id = ?", (session_id,))
+                        conn.execute("UPDATE sessions SET cart_initialized = 1 WHERE session_id = ?", (session_id,))
+                conn.commit()
+                return _ok(req, {"cleared": True})
+
         return _err(req, "UNIMPLEMENTED", f"unknown api {api}")
 
     return handle
@@ -523,6 +547,11 @@ class CustomerDBServicer(pb_grpc.CustomerDBServiceServicer):
         session_id = self._metadata_value(_context, "session-id")
         out = self._call("SaveCart", {"buyer_id": int(request.buyer_id), "session_id": session_id})
         return pb.SaveCartResponse(status=_status_from_resp(out), saved=bool((out.get("data") or {}).get("saved", False)))
+
+    def ClearAndSaveCart(self, request, _context):
+        session_id = self._metadata_value(_context, "session-id")
+        out = self._call("ClearAndSaveCart", {"buyer_id": int(request.buyer_id), "session_id": session_id})
+        return pb.ClearAndSaveCartResponse(status=_status_from_resp(out), cleared=bool((out.get("data") or {}).get("cleared", False)))
 
 
 def main():

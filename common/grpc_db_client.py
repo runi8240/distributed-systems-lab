@@ -179,6 +179,17 @@ class CustomerDBClient:
                     metadata=metadata,
                 )
                 return _resp(request_id, out.status, {"saved": bool(out.saved)})
+            if api == "ClearAndSaveCart":
+                metadata = None
+                if data.get("session_id"):
+                    metadata = (("session-id", str(data.get("session_id"))),)
+                out = self._stub.ClearAndSaveCart(
+                    pb.ClearAndSaveCartRequest(
+                        buyer_id=int(data.get("buyer_id", 0)),
+                    ),
+                    metadata=metadata,
+                )
+                return _resp(request_id, out.status, {"cleared": bool(out.cleared)})
             return {
                 "type": "Response",
                 "request_id": request_id,

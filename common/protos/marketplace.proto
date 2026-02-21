@@ -152,6 +152,15 @@ message SaveCartResponse {
   bool saved = 2;
 }
 
+message ClearAndSaveCartRequest {
+  int32 buyer_id = 1;
+}
+
+message ClearAndSaveCartResponse {
+  Status status = 1;
+  bool cleared = 2;
+}
+
 message RegisterItemRequest {
   string name = 1;
   int32 category = 2;
@@ -253,6 +262,7 @@ service CustomerDBService {
   rpc UpdateCart(UpdateCartRequest) returns (UpdateCartResponse);
   rpc ClearCart(ClearCartRequest) returns (ClearCartResponse);
   rpc SaveCart(SaveCartRequest) returns (SaveCartResponse);
+  rpc ClearAndSaveCart(ClearAndSaveCartRequest) returns (ClearAndSaveCartResponse);
 }
 
 service ProductDBService {
