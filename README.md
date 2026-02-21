@@ -1,47 +1,17 @@
-## System Summary
+## System Design, Assumptions, and Current State
 
-We have built a system which implements an online marketplace with a buyer and seller with four backend services - db_customer, db_product, server_buyer, and server_seller
+This PA2 system is an online marketplace split into four server components: `server_buyer`, `server_seller`, `db_customer`, and `db_product`.
 
-![System Summary](docs/system-diagram.png)
+Buyer and seller clients call the frontend services using REST over HTTP, and frontends call backend databases using gRPC.
 
-Clients talk to the buyer and seller frontends over JSON/TCP. The buyer/seller frontends call the database services (`db_customer`, `db_product`) over gRPC.
+A SOAP/WSDL financial transaction service is integrated with `MakePurchase` and returns Yes/No for payment authorization.
 
-Each service runs in its own process and can be deployed on separate hosts. For our experiments, we ran it on the same hosts on different ports.
+Frontend services are stateless by design; all durable state (accounts, sessions, cart, items, feedback) is stored in backend databases.
 
-The evaluation script is in scripts/bench. We measure average response time and throughput across many runs (that script is highly modular for testing different scenarios)
+Deployment target is GCP with one server component per VM, exposed on ports 6001-6004, while clients run locally on macOS.
 
-We also include lightweight API smoke tests in `tests/` that spin up in-process servers and exercise backend and frontend flows over TCP. These tests cover customer and product DB APIs and buyer and seller frontend APIs, including account creation, login and session validation, item registration and search, cart updates, and feedback, rating paths
+Assumptions: stable TCP/IP connectivity between VMs, firewall rules permit required ports, and VM sizes are sufficient for target concurrency.
 
-Containerization information is present in Dockerfiles for local runs and in `k8s\` for deployment on GCP.
+What works: account creation/login/logout, item registration and search, cart operations, feedback/rating, purchase flow, gRPC integration, and cloud deployment scripts.
 
-### Benchmark Scenarios
-
-The benchmark script `scripts/bench/run_scenarios.py` runs three predefined load levels: scenario 1 (1 buyer + 1 seller), scenario 2 (10 buyers + 10 sellers), and scenario 3 (100 buyers + 100 sellers). Each scenario repeats multiple runs (10), and each client performs 1000 API calls per run.
-
-Within each scenario, seller clients create accounts, log in, register an item, and then repeatedly toggle the item price (`ChangeItemPrice`). Buyer clients repeatedly call `SearchItemsForSale`. All buyer and seller threads start together, and the script measures per-request latency and overall throughput.
-
-### Performance Report
-
-The performance is analyzed in the [Performance Report File](REPORT.md)
-
-### Stateless Frontend
-
-The buyer and seller frontends are intentionally stateless: they do not keep persistent per-user or cross-request data in memory (e.g., sessions, carts, or item metadata). Any state that must survive reconnects or frontend restarts is stored in the backend databases (customer and product dbs), which are now gRPC services.
-
-### gRPC Setup
-
-Generate protobuf modules after installing dependencies:
-
-```bash
-scripts/gen_protos.sh
-```
-
-
-
-### Assumptions 
-
-
-* Services are reachable on ports 6001–6004
-* Docker Compose is used for local deployment, and clients can open enough sockets for concurrency
-* Kubernetes and Google Compute Engine is used for deployment on Google cloud
-* Network communication is reliable TCP
+Performance details and analysis are documented in `REPORT.md`.

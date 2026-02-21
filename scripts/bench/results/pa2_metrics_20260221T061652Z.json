@@ -1,0 +1,92 @@
+{
+  "metadata": {
+    "timestamp_utc": "2026-02-21T06:21:17.573273+00:00",
+    "buyer_host": "34.31.180.155",
+    "buyer_port": 6003,
+    "seller_host": "34.67.157.232",
+    "seller_port": 6004,
+    "runs": 2,
+    "ops_per_client": 200,
+    "category": 1
+  },
+  "scenarios": [
+    {
+      "name": "scenario_1",
+      "buyers": 1,
+      "sellers": 1,
+      "clients": 2,
+      "runs": 2,
+      "ops_per_client": 200,
+      "avg_response_time_sec": 0.09801102120105498,
+      "avg_throughput_ops_per_sec": 20.34186471305395,
+      "run_results": [
+        {
+          "run": 1,
+          "avg_response_time_sec": 0.10000804062470707,
+          "throughput_ops_per_sec": 19.942449207592215,
+          "total_ops": 400
+        },
+        {
+          "run": 2,
+          "avg_response_time_sec": 0.09601400177740288,
+          "throughput_ops_per_sec": 20.741280218515683,
+          "total_ops": 400
+        }
+      ],
+      "seller_api_measured": "DisplayItemsForSale",
+      "buyer_api_measured": "SearchItemsForSale"
+    },
+    {
+      "name": "scenario_2",
+      "buyers": 10,
+      "sellers": 10,
+      "clients": 20,
+      "runs": 2,
+      "ops_per_client": 200,
+      "avg_response_time_sec": 0.11452833130012732,
+      "avg_throughput_ops_per_sec": 171.49492097103212,
+      "run_results": [
+        {
+          "run": 1,
+          "avg_response_time_sec": 0.11146696657309803,
+          "throughput_ops_per_sec": 176.81747747605684,
+          "total_ops": 4000
+        },
+        {
+          "run": 2,
+          "avg_response_time_sec": 0.1175896960271566,
+          "throughput_ops_per_sec": 166.17236446600737,
+          "total_ops": 4000
+        }
+      ],
+      "seller_api_measured": "DisplayItemsForSale",
+      "buyer_api_measured": "SearchItemsForSale"
+    },
+    {
+      "name": "scenario_3",
+      "buyers": 100,
+      "sellers": 100,
+      "clients": 200,
+      "runs": 2,
+      "ops_per_client": 200,
+      "avg_response_time_sec": 0.2843791167073454,
+      "avg_throughput_ops_per_sec": 656.9601533929754,
+      "run_results": [
+        {
+          "run": 1,
+          "avg_response_time_sec": 0.2942256298478456,
+          "throughput_ops_per_sec": 632.592641694865,
+          "total_ops": 40000
+        },
+        {
+          "run": 2,
+          "avg_response_time_sec": 0.2745326035668451,
+          "throughput_ops_per_sec": 681.3276650910856,
+          "total_ops": 40000
+        }
+      ],
+      "seller_api_measured": "DisplayItemsForSale",
+      "buyer_api_measured": "SearchItemsForSale"
+    }
+  ]
+}
