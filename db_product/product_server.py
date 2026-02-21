@@ -3,13 +3,25 @@ import sqlite3
 import sys
 import threading
 import time
+from concurrent import futures
 from typing import Any, Dict, List
 
 _ROOT = os.path.dirname(os.path.dirname(__file__))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from common.tcp_server import run_server
+try:
+    import grpc
+except ModuleNotFoundError as exc:
+    raise RuntimeError("grpcio is required. Install dependencies from requirements.txt.") from exc
+
+try:
+    from common.grpc_gen import marketplace_pb2 as pb
+    from common.grpc_gen import marketplace_pb2_grpc as pb_grpc
+except ModuleNotFoundError as exc:
+    raise RuntimeError(
+        "Generated protobuf modules are missing. Run scripts/gen_protos.sh after installing grpcio-tools."
+    ) from exc
 
 MAX_KEYWORDS = 5
 MAX_KEYWORD_LEN = 8
@@ -267,6 +279,112 @@ def handle_request_factory(state_path: str):
     return handle
 
 
+def _status_from_resp(resp: Dict[str, Any]) -> pb.Status:
+    if resp.get("ok"):
+        return pb.Status(ok=True)
+    err = resp.get("error") or {}
+    return pb.Status(ok=False, error=pb.Error(code=str(err.get("code", "INTERNAL")), message=str(err.get("message", "request failed"))))
+
+
+def _to_item_msg(item: Dict[str, Any]) -> pb.Item:
+    feedback = item.get("feedback") or {}
+    return pb.Item(
+        item_id=str(item.get("item_id", "")),
+        name=str(item.get("name", "")),
+        category=int(item.get("category", 0)),
+        keywords=list(item.get("keywords", []) or []),
+        condition=str(item.get("condition", "")),
+        price=float(item.get("price", 0.0)),
+        quantity=int(item.get("quantity", 0)),
+        seller_id=int(item.get("seller_id", 0)),
+        feedback=pb.Feedback(up=int(feedback.get("up", 0)), down=int(feedback.get("down", 0))),
+    )
+
+
+class ProductDBServicer(pb_grpc.ProductDBServiceServicer):
+    def __init__(self, state_path: str):
+        self._handle = handle_request_factory(state_path)
+
+    def _call(self, api: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self._handle({"type": "Request", "request_id": None, "api": api, "data": data})
+
+    def Ping(self, _request, _context):
+        out = self._call("Ping", {})
+        return pb.PingResponse(status=_status_from_resp(out), now=float((out.get("data") or {}).get("now", 0.0)))
+
+    def RegisterItem(self, request, _context):
+        out = self._call(
+            "RegisterItem",
+            {
+                "name": request.name,
+                "category": int(request.category),
+                "keywords": list(request.keywords),
+                "condition": request.condition,
+                "price": float(request.price),
+                "quantity": int(request.quantity),
+                "seller_id": int(request.seller_id),
+            },
+        )
+        return pb.RegisterItemResponse(status=_status_from_resp(out), item_id=str((out.get("data") or {}).get("item_id", "")))
+
+    def ChangeItemPrice(self, request, _context):
+        out = self._call("ChangeItemPrice", {"item_id": request.item_id, "price": float(request.price)})
+        data = out.get("data") or {}
+        return pb.ChangeItemPriceResponse(status=_status_from_resp(out), item_id=str(data.get("item_id", "")), price=float(data.get("price", 0.0)))
+
+    def UpdateUnitsForSale(self, request, _context):
+        out = self._call(
+            "UpdateUnitsForSale",
+            {"item_id": request.item_id, "quantity_delta": int(request.quantity_delta)},
+        )
+        data = out.get("data") or {}
+        return pb.UpdateUnitsForSaleResponse(status=_status_from_resp(out), item_id=str(data.get("item_id", "")), quantity=int(data.get("quantity", 0)))
+
+    def DisplayItemsForSale(self, request, _context):
+        out = self._call("DisplayItemsForSale", {"seller_id": int(request.seller_id)})
+        items = []
+        if out.get("ok"):
+            items = [_to_item_msg(item) for item in ((out.get("data") or {}).get("items", []) or [])]
+        return pb.DisplayItemsForSaleResponse(status=_status_from_resp(out), items=items)
+
+    def SearchItems(self, request, _context):
+        category = int(request.category) if request.include_category else None
+        out = self._call(
+            "SearchItems",
+            {"category": category, "keywords": list(request.keywords)},
+        )
+        items = []
+        if out.get("ok"):
+            items = [_to_item_msg(item) for item in ((out.get("data") or {}).get("items", []) or [])]
+        return pb.SearchItemsResponse(status=_status_from_resp(out), items=items)
+
+    def GetItem(self, request, _context):
+        out = self._call("GetItem", {"item_id": request.item_id})
+        item = pb.Item()
+        if out.get("ok"):
+            item = _to_item_msg((out.get("data") or {}).get("item", {}))
+        return pb.GetItemResponse(status=_status_from_resp(out), item=item)
+
+    def ProvideFeedback(self, request, _context):
+        out = self._call("ProvideFeedback", {"item_id": request.item_id, "vote": request.vote})
+        data = out.get("data") or {}
+        feedback = data.get("feedback") or {}
+        return pb.ProvideFeedbackResponse(
+            status=_status_from_resp(out),
+            item_id=str(data.get("item_id", "")),
+            feedback=pb.Feedback(up=int(feedback.get("up", 0)), down=int(feedback.get("down", 0))),
+        )
+
+    def CheckAvailability(self, request, _context):
+        out = self._call("CheckAvailability", {"item_id": request.item_id, "quantity": int(request.quantity)})
+        data = out.get("data") or {}
+        return pb.CheckAvailabilityResponse(
+            status=_status_from_resp(out),
+            available=int(data.get("available", 0)),
+            ok=bool(data.get("ok", False)),
+        )
+
+
 def main():
     import argparse
 
@@ -276,8 +394,11 @@ def main():
     parser.add_argument("--state", default="db_product/state.db")
     args = parser.parse_args()
 
-    handler = handle_request_factory(args.state)
-    run_server(args.host, args.port, handler)
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=32))
+    pb_grpc.add_ProductDBServiceServicer_to_server(ProductDBServicer(args.state), server)
+    server.add_insecure_port(f"{args.host}:{args.port}")
+    server.start()
+    server.wait_for_termination()
 
 
 if __name__ == "__main__":

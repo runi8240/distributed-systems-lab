@@ -1,0 +1,268 @@
+syntax = "proto3";
+
+package marketplace;
+
+message Error {
+  string code = 1;
+  string message = 2;
+}
+
+message Status {
+  bool ok = 1;
+  Error error = 2;
+}
+
+message Empty {}
+
+message Feedback {
+  int32 up = 1;
+  int32 down = 2;
+}
+
+message Item {
+  string item_id = 1;
+  string name = 2;
+  int32 category = 3;
+  repeated string keywords = 4;
+  string condition = 5;
+  double price = 6;
+  int32 quantity = 7;
+  int32 seller_id = 8;
+  Feedback feedback = 9;
+}
+
+message CartEntry {
+  string item_id = 1;
+  int32 quantity = 2;
+}
+
+message PingResponse {
+  Status status = 1;
+  double now = 2;
+}
+
+message CreateBuyerRequest {
+  string name = 1;
+  string password = 2;
+}
+
+message CreateBuyerResponse {
+  Status status = 1;
+  int32 buyer_id = 2;
+}
+
+message CreateSellerRequest {
+  string name = 1;
+  string password = 2;
+}
+
+message CreateSellerResponse {
+  Status status = 1;
+  int32 seller_id = 2;
+}
+
+message LoginRequest {
+  string role = 1;
+  string name = 2;
+  string password = 3;
+}
+
+message LoginResponse {
+  Status status = 1;
+  string session_id = 2;
+  int32 user_id = 3;
+  string role = 4;
+}
+
+message LogoutRequest {
+  string session_id = 1;
+}
+
+message LogoutResponse {
+  Status status = 1;
+  bool logged_out = 2;
+}
+
+message ValidateSessionRequest {
+  string session_id = 1;
+}
+
+message ValidateSessionResponse {
+  Status status = 1;
+  string role = 2;
+  int32 user_id = 3;
+}
+
+message GetSellerRatingRequest {
+  int32 seller_id = 1;
+}
+
+message GetSellerRatingResponse {
+  Status status = 1;
+  int32 seller_id = 2;
+  Feedback feedback = 3;
+}
+
+message GetBuyerPurchasesRequest {
+  int32 buyer_id = 1;
+}
+
+message GetBuyerPurchasesResponse {
+  Status status = 1;
+  int32 buyer_id = 2;
+  int32 purchases_count = 3;
+}
+
+message GetCartRequest {
+  int32 buyer_id = 1;
+}
+
+message GetCartResponse {
+  Status status = 1;
+  repeated CartEntry cart = 2;
+}
+
+message UpdateCartRequest {
+  int32 buyer_id = 1;
+  string item_id = 2;
+  int32 quantity_delta = 3;
+}
+
+message UpdateCartResponse {
+  Status status = 1;
+  string item_id = 2;
+  int32 quantity = 3;
+}
+
+message ClearCartRequest {
+  int32 buyer_id = 1;
+}
+
+message ClearCartResponse {
+  Status status = 1;
+  bool cleared = 2;
+}
+
+message SaveCartRequest {
+  int32 buyer_id = 1;
+}
+
+message SaveCartResponse {
+  Status status = 1;
+  bool saved = 2;
+}
+
+message RegisterItemRequest {
+  string name = 1;
+  int32 category = 2;
+  repeated string keywords = 3;
+  string condition = 4;
+  double price = 5;
+  int32 quantity = 6;
+  int32 seller_id = 7;
+}
+
+message RegisterItemResponse {
+  Status status = 1;
+  string item_id = 2;
+}
+
+message ChangeItemPriceRequest {
+  string item_id = 1;
+  double price = 2;
+}
+
+message ChangeItemPriceResponse {
+  Status status = 1;
+  string item_id = 2;
+  double price = 3;
+}
+
+message UpdateUnitsForSaleRequest {
+  string item_id = 1;
+  int32 quantity_delta = 2;
+}
+
+message UpdateUnitsForSaleResponse {
+  Status status = 1;
+  string item_id = 2;
+  int32 quantity = 3;
+}
+
+message DisplayItemsForSaleRequest {
+  int32 seller_id = 1;
+}
+
+message DisplayItemsForSaleResponse {
+  Status status = 1;
+  repeated Item items = 2;
+}
+
+message SearchItemsRequest {
+  int32 category = 1;
+  bool include_category = 2;
+  repeated string keywords = 3;
+}
+
+message SearchItemsResponse {
+  Status status = 1;
+  repeated Item items = 2;
+}
+
+message GetItemRequest {
+  string item_id = 1;
+}
+
+message GetItemResponse {
+  Status status = 1;
+  Item item = 2;
+}
+
+message ProvideFeedbackRequest {
+  string item_id = 1;
+  string vote = 2;
+}
+
+message ProvideFeedbackResponse {
+  Status status = 1;
+  string item_id = 2;
+  Feedback feedback = 3;
+}
+
+message CheckAvailabilityRequest {
+  string item_id = 1;
+  int32 quantity = 2;
+}
+
+message CheckAvailabilityResponse {
+  Status status = 1;
+  int32 available = 2;
+  bool ok = 3;
+}
+
+service CustomerDBService {
+  rpc Ping(Empty) returns (PingResponse);
+  rpc CreateBuyer(CreateBuyerRequest) returns (CreateBuyerResponse);
+  rpc CreateSeller(CreateSellerRequest) returns (CreateSellerResponse);
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+  rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse);
+  rpc GetSellerRating(GetSellerRatingRequest) returns (GetSellerRatingResponse);
+  rpc GetBuyerPurchases(GetBuyerPurchasesRequest) returns (GetBuyerPurchasesResponse);
+  rpc GetCart(GetCartRequest) returns (GetCartResponse);
+  rpc UpdateCart(UpdateCartRequest) returns (UpdateCartResponse);
+  rpc ClearCart(ClearCartRequest) returns (ClearCartResponse);
+  rpc SaveCart(SaveCartRequest) returns (SaveCartResponse);
+}
+
+service ProductDBService {
+  rpc Ping(Empty) returns (PingResponse);
+  rpc RegisterItem(RegisterItemRequest) returns (RegisterItemResponse);
+  rpc ChangeItemPrice(ChangeItemPriceRequest) returns (ChangeItemPriceResponse);
+  rpc UpdateUnitsForSale(UpdateUnitsForSaleRequest) returns (UpdateUnitsForSaleResponse);
+  rpc DisplayItemsForSale(DisplayItemsForSaleRequest) returns (DisplayItemsForSaleResponse);
+  rpc SearchItems(SearchItemsRequest) returns (SearchItemsResponse);
+  rpc GetItem(GetItemRequest) returns (GetItemResponse);
+  rpc ProvideFeedback(ProvideFeedbackRequest) returns (ProvideFeedbackResponse);
+  rpc CheckAvailability(CheckAvailabilityRequest) returns (CheckAvailabilityResponse);
+}

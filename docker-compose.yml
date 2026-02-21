@@ -20,6 +20,7 @@ services:
     depends_on:
       - db_customer
       - db_product
+      - soap_financial
     ports:
       - "6003:6003"
 
@@ -52,3 +53,10 @@ services:
     profiles: ["cli"]
     stdin_open: true
     tty: true
+
+  soap_financial:
+    build:
+      context: .
+      dockerfile: soap/Dockerfile
+    ports:
+      - "8008:8008"

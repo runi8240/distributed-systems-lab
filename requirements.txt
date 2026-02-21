@@ -1,2 +1,7 @@
-# This project currently uses only the Python standard library.
-# Add third-party deps here as needed.
+grpcio>=1.62.0
+grpcio-tools>=1.62.0
+protobuf>=4.25.0
+spyne>=2.14.0
+lxml>=5.2.0
+flask>=3.0.0
+zeep>=4.3.1

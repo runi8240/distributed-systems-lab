@@ -4,7 +4,7 @@ We have built a system which implements an online marketplace with a buyer and s
 
 ![System Summary](docs/system-diagram.png)
 
-Clients talk to the buyer and seller frontends, which forward requests to the above services using JSON over TCP - All communication is done on TCP
+Clients talk to the buyer and seller frontends over JSON/TCP. The buyer/seller frontends call the database services (`db_customer`, `db_product`) over gRPC.
 
 Each service runs in its own process and can be deployed on separate hosts. For our experiments, we ran it on the same hosts on different ports.
 
@@ -26,7 +26,15 @@ The performance is analyzed in the [Performance Report File](REPORT.md)
 
 ### Stateless Frontend
 
-The buyer and seller frontends are intentionally stateless: they do not keep persistent per-user or cross-request data in memory (e.g., sessions, carts, or item metadata). Any state that must survive reconnects or frontend restarts is stored in the backend databases (customer and product dbs).
+The buyer and seller frontends are intentionally stateless: they do not keep persistent per-user or cross-request data in memory (e.g., sessions, carts, or item metadata). Any state that must survive reconnects or frontend restarts is stored in the backend databases (customer and product dbs), which are now gRPC services.
+
+### gRPC Setup
+
+Generate protobuf modules after installing dependencies:
+
+```bash
+scripts/gen_protos.sh
+```
 
 
 

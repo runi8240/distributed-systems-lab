@@ -1,117 +1,113 @@
 import os
 import sys
+import uuid
 from typing import Any, Dict
+
+from flask import Flask, jsonify, request
 
 _ROOT = os.path.dirname(os.path.dirname(__file__))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from common.tcp_client import tcp_request
-from common.tcp_server import run_server
+from common.grpc_db_client import CustomerDBClient, ProductDBClient
 
 
-def _ok(req, data=None):
-    return {
-        "type": "Response",
-        "request_id": req.get("request_id"),
-        "ok": True,
-        "error": None,
-        "data": data,
-    }
+def _resp_to_http(resp: Dict[str, Any]):
+    if resp.get("ok"):
+        return jsonify({"ok": True, "data": resp.get("data"), "error": None}), 200
+    err = resp.get("error") or {}
+    code = str(err.get("code", "INTERNAL"))
+    status = 400
+    if code in ("NOT_LOGGED_IN", "AUTH_FAILED", "SESSION_TIMEOUT"):
+        status = 401
+    elif code == "NOT_AUTHORIZED":
+        status = 403
+    elif code == "NOT_FOUND":
+        status = 404
+    return jsonify({"ok": False, "data": None, "error": err}), status
 
 
-def _err(req, code, message):
-    return {
-        "type": "Response",
-        "request_id": req.get("request_id"),
-        "ok": False,
-        "error": {"code": code, "message": message},
-        "data": None,
-    }
+def create_app(customer_host: str, customer_port: int, product_host: str, product_port: int) -> Flask:
+    app = Flask(__name__)
+    customer_db = CustomerDBClient(customer_host, customer_port)
+    product_db = ProductDBClient(product_host, product_port)
 
+    def request_id() -> str:
+        return request.headers.get("X-Request-Id", str(uuid.uuid4()))
 
-def handle_request_factory(customer_host, customer_port, product_host, product_port):
-    def db_call(host, port, api, data, request_id):
-        return tcp_request(
-            host,
-            port,
-            {
-                "type": "Request",
-                "request_id": request_id,
-                "api": api,
-                "data": data,
-            },
-            reuse_socket=True,
-        )
-
-    def validate_session(session_id, request_id):
-        resp = db_call(
-            customer_host,
-            customer_port,
-            "ValidateSession",
-            {"session_id": session_id},
-            request_id,
-        )
-        return resp
-
-    def require_session(data, request_id):
-        session_id = data.get("session_id")
+    def require_session(session_id: str, req_id: str):
         if not session_id:
-            return None, _err({"request_id": request_id}, "NOT_LOGGED_IN", "session_id required")
-        sess = validate_session(session_id, request_id)
+            return None, {"ok": False, "error": {"code": "NOT_LOGGED_IN", "message": "session_id required"}}
+        sess = customer_db.call("ValidateSession", {"session_id": session_id}, req_id)
         if not sess.get("ok"):
             return None, sess
-        return sess["data"], None
+        if (sess.get("data") or {}).get("role") != "seller":
+            return None, {"ok": False, "error": {"code": "NOT_AUTHORIZED", "message": "seller session required"}}
+        return sess.get("data") or {}, None
 
-    def handle(req: Dict[str, Any]):
-        api = req.get("api")
-        data = req.get("data") or {}
-        request_id = req.get("request_id")
+    @app.get("/health")
+    def health():
+        return jsonify({"ok": True}), 200
 
-        if api == "Ping":
-            return _ok(req, {"ok": True})
+    @app.post("/seller/accounts")
+    def create_account():
+        payload = request.get_json(silent=True) or {}
+        resp = customer_db.call(
+            "CreateSeller",
+            {"name": payload.get("name", ""), "password": payload.get("password", "")},
+            request_id(),
+        )
+        return _resp_to_http(resp)
 
-        if api == "CreateAccount":
-            return db_call(customer_host, customer_port, "CreateSeller", data, request_id)
+    @app.post("/seller/login")
+    def login():
+        payload = request.get_json(silent=True) or {}
+        resp = customer_db.call(
+            "Login",
+            {"role": "seller", "name": payload.get("name", ""), "password": payload.get("password", "")},
+            request_id(),
+        )
+        return _resp_to_http(resp)
 
-        if api == "Login":
-            payload = {"role": "seller", **data}
-            return db_call(customer_host, customer_port, "Login", payload, request_id)
+    @app.post("/seller/logout")
+    def logout():
+        payload = request.get_json(silent=True) or {}
+        resp = customer_db.call("Logout", {"session_id": payload.get("session_id", "")}, request_id())
+        return _resp_to_http(resp)
 
-        if api == "Logout":
-            return db_call(customer_host, customer_port, "Logout", {"session_id": data.get("session_id")}, request_id)
+    @app.get("/seller/items")
+    def list_items():
+        session_id = request.args.get("session_id", "")
+        req_id = request_id()
+        sess_data, err = require_session(session_id, req_id)
+        if err:
+            return _resp_to_http(err)
+        resp = product_db.call("DisplayItemsForSale", {"seller_id": int(sess_data["user_id"])}, req_id)
+        return _resp_to_http(resp)
 
-        if api in (
-            "GetSellerRating",
-            "RegisterItemForSale",
-            "ChangeItemPrice",
-            "UpdateUnitsForSale",
-            "DisplayItemsForSale",
-        ):
-            sess_data, err = require_session(data, request_id)
-            if err:
-                return err
-            seller_id = sess_data["user_id"]
+    @app.post("/seller/items")
+    def register_item():
+        payload = request.get_json(silent=True) or {}
+        req_id = request_id()
+        sess_data, err = require_session(str(payload.get("session_id", "")), req_id)
+        if err:
+            return _resp_to_http(err)
+        resp = product_db.call(
+            "RegisterItem",
+            {
+                "seller_id": int(sess_data["user_id"]),
+                "name": payload.get("name", ""),
+                "category": payload.get("category", 0),
+                "keywords": payload.get("keywords", []),
+                "condition": payload.get("condition", ""),
+                "price": payload.get("price", 0.0),
+                "quantity": payload.get("quantity", 0),
+            },
+            req_id,
+        )
+        return _resp_to_http(resp)
 
-            if api == "GetSellerRating":
-                return db_call(customer_host, customer_port, "GetSellerRating", {"seller_id": seller_id}, request_id)
-
-            if api == "RegisterItemForSale":
-                payload = {"seller_id": seller_id, **data}
-                return db_call(product_host, product_port, "RegisterItem", payload, request_id)
-
-            if api == "ChangeItemPrice":
-                return db_call(product_host, product_port, "ChangeItemPrice", data, request_id)
-
-            if api == "UpdateUnitsForSale":
-                return db_call(product_host, product_port, "UpdateUnitsForSale", data, request_id)
-
-            if api == "DisplayItemsForSale":
-                return db_call(product_host, product_port, "DisplayItemsForSale", {"seller_id": seller_id}, request_id)
-
-        return _err(req, "UNIMPLEMENTED", f"unknown api {api}")
-
-    return handle
+    return app
 
 
 def main():
@@ -126,8 +122,8 @@ def main():
     parser.add_argument("--product-port", type=int, default=6002)
     args = parser.parse_args()
 
-    handler = handle_request_factory(args.customer_host, args.customer_port, args.product_host, args.product_port)
-    run_server(args.host, args.port, handler)
+    app = create_app(args.customer_host, args.customer_port, args.product_host, args.product_port)
+    app.run(host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

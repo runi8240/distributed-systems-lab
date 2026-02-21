@@ -1,24 +1,141 @@
 import argparse
 import json
-import socket
-import sys
-from typing import Any, Dict
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Any, Dict, Tuple
 
-from .protocol import recv_msg, send_msg
+
+def _http_json(
+    host: str,
+    port: int,
+    method: str,
+    path: str,
+    data: Dict[str, Any] | None = None,
+    timeout: float = 10.0,
+) -> Tuple[int, Dict[str, Any]]:
+    url = f"http://{host}:{port}{path}"
+    body = None
+    headers = {"Accept": "application/json"}
+    if data is not None:
+        body = json.dumps(data).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    req = urllib.request.Request(url=url, data=body, headers=headers, method=method.upper())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+            return int(resp.getcode()), json.loads(raw) if raw else {}
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8")
+        if raw:
+            try:
+                return int(exc.code), json.loads(raw)
+            except json.JSONDecodeError:
+                return int(exc.code), {"ok": False, "error": {"code": "HTTP_ERROR", "message": raw}, "data": None}
+        return int(exc.code), {"ok": False, "error": {"code": "HTTP_ERROR", "message": str(exc)}, "data": None}
 
 
-def _send(host: str, port: int, req: Dict[str, Any]) -> Dict[str, Any]:
-    with socket.create_connection((host, port)) as sock:
-        send_msg(sock, req)
-        return recv_msg(sock)
+def _with_query(path: str, params: Dict[str, Any]) -> str:
+    pairs = []
+    for key, value in params.items():
+        if value is None:
+            continue
+        if isinstance(value, list):
+            for item in value:
+                pairs.append((key, str(item)))
+        else:
+            pairs.append((key, str(value)))
+    query = urllib.parse.urlencode(pairs, doseq=True)
+    return f"{path}?{query}" if query else path
+
+
+def _map_api(role: str, api: str, data: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any] | None]:
+    if api == "Ping":
+        return "GET", "/health", None
+
+    if role == "seller":
+        if api == "CreateAccount":
+            return "POST", "/seller/accounts", {"name": data.get("name", ""), "password": data.get("password", "")}
+        if api == "Login":
+            return "POST", "/seller/login", {"name": data.get("name", ""), "password": data.get("password", "")}
+        if api == "Logout":
+            return "POST", "/seller/logout", {"session_id": data.get("session_id", "")}
+        if api == "DisplayItemsForSale":
+            return "GET", _with_query("/seller/items", {"session_id": data.get("session_id", "")}), None
+        if api == "RegisterItemForSale":
+            payload = {
+                "session_id": data.get("session_id", ""),
+                "name": data.get("name", ""),
+                "category": data.get("category", 0),
+                "keywords": list(data.get("keywords", []) or []),
+                "condition": data.get("condition", ""),
+                "price": data.get("price", 0.0),
+                "quantity": data.get("quantity", 0),
+            }
+            return "POST", "/seller/items", payload
+        raise ValueError(f"unsupported seller API: {api}")
+
+    if role == "buyer":
+        if api == "CreateAccount":
+            return "POST", "/buyer/accounts", {"name": data.get("name", ""), "password": data.get("password", "")}
+        if api == "Login":
+            return "POST", "/buyer/login", {"name": data.get("name", ""), "password": data.get("password", "")}
+        if api == "Logout":
+            return "POST", "/buyer/logout", {"session_id": data.get("session_id", "")}
+        if api == "SearchItemsForSale":
+            keywords = data.get("keywords", []) or []
+            params: Dict[str, Any] = {"keyword": keywords}
+            if "category" in data:
+                params["category"] = data.get("category")
+            return "GET", _with_query("/buyer/items/search", params), None
+        if api == "GetItem":
+            return "GET", f"/buyer/items/{data.get('item_id', '')}", None
+        if api == "AddItemToCart":
+            return "POST", "/buyer/cart/items", {
+                "session_id": data.get("session_id", ""),
+                "item_id": data.get("item_id", ""),
+                "quantity": data.get("quantity", 0),
+            }
+        if api == "RemoveItemFromCart":
+            return "DELETE", f"/buyer/cart/items/{data.get('item_id', '')}", {
+                "session_id": data.get("session_id", ""),
+                "quantity": data.get("quantity", 0),
+            }
+        if api == "SaveCart":
+            return "POST", "/buyer/cart/save", {"session_id": data.get("session_id", "")}
+        if api == "ClearCart":
+            return "DELETE", "/buyer/cart", {"session_id": data.get("session_id", "")}
+        if api == "DisplayCart":
+            return "GET", _with_query("/buyer/cart", {"session_id": data.get("session_id", "")}), None
+        if api == "ProvideFeedback":
+            return "POST", "/buyer/feedback", {
+                "session_id": data.get("session_id", ""),
+                "item_id": data.get("item_id", ""),
+                "vote": data.get("vote", ""),
+            }
+        if api == "GetSellerRating":
+            return "GET", f"/buyer/sellers/{int(data.get('seller_id', 0))}/rating", None
+        if api == "GetBuyerPurchases":
+            return "GET", _with_query("/buyer/purchases", {"session_id": data.get("session_id", "")}), None
+        if api == "MakePurchase":
+            return "POST", "/buyer/purchases", {
+                "session_id": data.get("session_id", ""),
+                "user_name": data.get("user_name", ""),
+                "credit_card_number": data.get("credit_card_number", ""),
+                "expiration_date": data.get("expiration_date", ""),
+                "security_code": data.get("security_code", ""),
+            }
+        raise ValueError(f"unsupported buyer API: {api}")
+
+    raise ValueError(f"unsupported role: {role}")
 
 
 def repl(host: str, port: int, role: str):
     session_id = None
-    req_id = 1
 
-    print(f"Connected to {host}:{port} as {role} client")
-    print("Commands: help, create <name> <password>, login <name> <password>, logout, api <API> <json>, session <id>, exit")
+    print(f"Connected to http://{host}:{port} as {role} client")
+    print("Commands: help, create <name> <password>, login <name> <password>, logout, api <API> <json>, makepurchase, session <id>, exit")
 
     while True:
         try:
@@ -34,6 +151,8 @@ def repl(host: str, port: int, role: str):
             print("login <name> <password>")
             print("logout")
             print("api <API> <json>")
+            if role == "buyer":
+                print("makepurchase  # prompts for card details and calls MakePurchase")
             print("session <id>")
             continue
 
@@ -54,12 +173,28 @@ def repl(host: str, port: int, role: str):
         elif cmd == "logout":
             api = "Logout"
             data = {"session_id": session_id}
+        elif cmd == "makepurchase" and role == "buyer":
+            if not session_id:
+                print("error: login first (missing session_id)")
+                continue
+            user_name = input("user name: ").strip()
+            card_number = input("credit card number: ").strip()
+            expiration_date = input("expiration date (MM/YY or MM/YYYY): ").strip()
+            security_code = input("security code (CVV): ").strip()
+            api = "MakePurchase"
+            data = {
+                "session_id": session_id,
+                "user_name": user_name,
+                "credit_card_number": card_number,
+                "expiration_date": expiration_date,
+                "security_code": security_code,
+            }
         elif cmd == "api" and len(parts) >= 3:
             api = parts[1]
             try:
                 data = json.loads(parts[2])
-            except json.JSONDecodeError as e:
-                print(f"invalid json: {e}")
+            except json.JSONDecodeError as exc:
+                print(f"invalid json: {exc}")
                 continue
         else:
             print("unknown command; type 'help'")
@@ -68,16 +203,21 @@ def repl(host: str, port: int, role: str):
         if session_id and isinstance(data, dict) and "session_id" not in data:
             data["session_id"] = session_id
 
-        req = {"type": "Request", "request_id": str(req_id), "api": api, "data": data}
-        req_id += 1
         try:
-            resp = _send(host, port, req)
-        except Exception as e:
-            print(f"error: {e}")
+            method, path, body = _map_api(role, api, data)
+        except ValueError as exc:
+            print(f"error: {exc}")
             continue
-        print(json.dumps(resp, indent=2))
-        if api == "Login" and resp.get("ok"):
-            session_id = resp.get("data", {}).get("session_id")
+
+        try:
+            status, resp = _http_json(host, port, method, path, body)
+        except Exception as exc:
+            print(f"error: {exc}")
+            continue
+
+        print(json.dumps({"status": status, "response": resp}, indent=2))
+        if api == "Login" and (resp or {}).get("ok"):
+            session_id = (resp.get("data") or {}).get("session_id")
             print(f"session_id set to {session_id}")
 
 
