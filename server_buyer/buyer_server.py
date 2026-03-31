@@ -3,7 +3,7 @@ import re
 import sys
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, List, Sequence, Tuple
 
 from flask import Flask, jsonify, request
 from zeep import Client as SoapClient
@@ -77,10 +77,25 @@ def _validate_payment_info(user_name: str, card_number: str, exp_date: str, secu
     return None
 
 
-def create_app(customer_host: str, customer_port: int, product_host: str, product_port: int, soap_wsdl: str) -> Flask:
+def _parse_members_arg(value: str) -> List[Tuple[str, int]]:
+    members: List[Tuple[str, int]] = []
+    for raw in value.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        host, port = raw.rsplit(":", 1)
+        members.append((host, int(port)))
+    return members
+
+
+def create_app(
+    customer_members: Sequence[Tuple[str, int]],
+    product_members: Sequence[Tuple[str, int]],
+    soap_wsdl: str,
+) -> Flask:
     app = Flask(__name__)
-    customer_db = CustomerDBClient(customer_host, customer_port)
-    product_db = ProductDBClient(product_host, product_port)
+    customer_db = CustomerDBClient(customer_members[0][0], customer_members[0][1], members=customer_members)
+    product_db = ProductDBClient(product_members[0][0], product_members[0][1], members=product_members)
     soap_client = SoapClient(soap_wsdl)
 
     def request_id() -> str:
@@ -356,13 +371,18 @@ def main():
     parser.add_argument("--customer-port", type=int, default=6001)
     parser.add_argument("--product-host", default="127.0.0.1")
     parser.add_argument("--product-port", type=int, default=6002)
+    parser.add_argument("--customer-members", default="")
+    parser.add_argument("--product-members", default="")
     parser.add_argument(
         "--soap-wsdl",
         default=os.environ.get("FINANCIAL_SOAP_WSDL", "http://soap_financial:8008/?wsdl"),
     )
     args = parser.parse_args()
 
-    app = create_app(args.customer_host, args.customer_port, args.product_host, args.product_port, args.soap_wsdl)
+    customer_members = _parse_members_arg(args.customer_members) if args.customer_members else [(args.customer_host, args.customer_port)]
+    product_members = _parse_members_arg(args.product_members) if args.product_members else [(args.product_host, args.product_port)]
+
+    app = create_app(customer_members, product_members, args.soap_wsdl)
     app.run(host=args.host, port=args.port)
 
 

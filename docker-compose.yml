@@ -1,45 +1,518 @@
 services:
-  db_customer:
+  db_customer_0:
     build:
       context: .
       dockerfile: db_customer/Dockerfile
+    command:
+      [
+        "python3",
+        "db_customer/customer_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6001",
+        "--state",
+        "/app/data/customer.db",
+        "--node-id",
+        "0",
+        "--members",
+        "db_customer_0:7000,db_customer_1:7001,db_customer_2:7002,db_customer_3:7003,db_customer_4:7004",
+      ]
     ports:
-      - "6001:6001"
+      - "6101:6001"
+      - "7100:7000/udp"
+    volumes:
+      - customer_db_0:/app/data
 
-  db_product:
+  db_customer_1:
+    build:
+      context: .
+      dockerfile: db_customer/Dockerfile
+    command:
+      [
+        "python3",
+        "db_customer/customer_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6001",
+        "--state",
+        "/app/data/customer.db",
+        "--node-id",
+        "1",
+        "--members",
+        "db_customer_0:7000,db_customer_1:7001,db_customer_2:7002,db_customer_3:7003,db_customer_4:7004",
+      ]
+    ports:
+      - "6102:6001"
+      - "7101:7001/udp"
+    volumes:
+      - customer_db_1:/app/data
+
+  db_customer_2:
+    build:
+      context: .
+      dockerfile: db_customer/Dockerfile
+    command:
+      [
+        "python3",
+        "db_customer/customer_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6001",
+        "--state",
+        "/app/data/customer.db",
+        "--node-id",
+        "2",
+        "--members",
+        "db_customer_0:7000,db_customer_1:7001,db_customer_2:7002,db_customer_3:7003,db_customer_4:7004",
+      ]
+    ports:
+      - "6103:6001"
+      - "7102:7002/udp"
+    volumes:
+      - customer_db_2:/app/data
+
+  db_customer_3:
+    build:
+      context: .
+      dockerfile: db_customer/Dockerfile
+    command:
+      [
+        "python3",
+        "db_customer/customer_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6001",
+        "--state",
+        "/app/data/customer.db",
+        "--node-id",
+        "3",
+        "--members",
+        "db_customer_0:7000,db_customer_1:7001,db_customer_2:7002,db_customer_3:7003,db_customer_4:7004",
+      ]
+    ports:
+      - "6104:6001"
+      - "7103:7003/udp"
+    volumes:
+      - customer_db_3:/app/data
+
+  db_customer_4:
+    build:
+      context: .
+      dockerfile: db_customer/Dockerfile
+    command:
+      [
+        "python3",
+        "db_customer/customer_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6001",
+        "--state",
+        "/app/data/customer.db",
+        "--node-id",
+        "4",
+        "--members",
+        "db_customer_0:7000,db_customer_1:7001,db_customer_2:7002,db_customer_3:7003,db_customer_4:7004",
+      ]
+    ports:
+      - "6105:6001"
+      - "7104:7004/udp"
+    volumes:
+      - customer_db_4:/app/data
+
+  db_product_0:
     build:
       context: .
       dockerfile: db_product/Dockerfile
+    command:
+      [
+        "python3",
+        "db_product/product_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6002",
+        "--state",
+        "/app/data/product.db",
+        "--node-id",
+        "0",
+        "--members",
+        "db_product_0:7200,db_product_1:7201,db_product_2:7202,db_product_3:7203,db_product_4:7204",
+      ]
     ports:
-      - "6002:6002"
+      - "6201:6002"
+    volumes:
+      - product_db_0:/app/data
 
-  server_buyer:
+  db_product_1:
+    build:
+      context: .
+      dockerfile: db_product/Dockerfile
+    command:
+      [
+        "python3",
+        "db_product/product_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6002",
+        "--state",
+        "/app/data/product.db",
+        "--node-id",
+        "1",
+        "--members",
+        "db_product_0:7200,db_product_1:7201,db_product_2:7202,db_product_3:7203,db_product_4:7204",
+      ]
+    ports:
+      - "6202:6002"
+    volumes:
+      - product_db_1:/app/data
+
+  db_product_2:
+    build:
+      context: .
+      dockerfile: db_product/Dockerfile
+    command:
+      [
+        "python3",
+        "db_product/product_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6002",
+        "--state",
+        "/app/data/product.db",
+        "--node-id",
+        "2",
+        "--members",
+        "db_product_0:7200,db_product_1:7201,db_product_2:7202,db_product_3:7203,db_product_4:7204",
+      ]
+    ports:
+      - "6203:6002"
+    volumes:
+      - product_db_2:/app/data
+
+  db_product_3:
+    build:
+      context: .
+      dockerfile: db_product/Dockerfile
+    command:
+      [
+        "python3",
+        "db_product/product_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6002",
+        "--state",
+        "/app/data/product.db",
+        "--node-id",
+        "3",
+        "--members",
+        "db_product_0:7200,db_product_1:7201,db_product_2:7202,db_product_3:7203,db_product_4:7204",
+      ]
+    ports:
+      - "6204:6002"
+    volumes:
+      - product_db_3:/app/data
+
+  db_product_4:
+    build:
+      context: .
+      dockerfile: db_product/Dockerfile
+    command:
+      [
+        "python3",
+        "db_product/product_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6002",
+        "--state",
+        "/app/data/product.db",
+        "--node-id",
+        "4",
+        "--members",
+        "db_product_0:7200,db_product_1:7201,db_product_2:7202,db_product_3:7203,db_product_4:7204",
+      ]
+    ports:
+      - "6205:6002"
+    volumes:
+      - product_db_4:/app/data
+
+  server_buyer_1:
     build:
       context: .
       dockerfile: server_buyer/Dockerfile
+    command:
+      [
+        "python3",
+        "server_buyer/buyer_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6003",
+        "--customer-members",
+        "db_customer_0:6001,db_customer_1:6001,db_customer_2:6001,db_customer_3:6001,db_customer_4:6001",
+        "--product-members",
+        "db_product_0:6002,db_product_1:6002,db_product_2:6002,db_product_3:6002,db_product_4:6002",
+        "--soap-wsdl",
+        "http://soap_financial:8008/?wsdl",
+      ]
     depends_on:
-      - db_customer
-      - db_product
+      - db_customer_0
+      - db_customer_1
+      - db_customer_2
+      - db_customer_3
+      - db_customer_4
+      - db_product_0
+      - db_product_1
+      - db_product_2
+      - db_product_3
+      - db_product_4
       - soap_financial
     ports:
-      - "6003:6003"
+      - "6301:6003"
 
-  server_seller:
+  server_buyer_2:
+    build:
+      context: .
+      dockerfile: server_buyer/Dockerfile
+    command:
+      [
+        "python3",
+        "server_buyer/buyer_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6003",
+        "--customer-members",
+        "db_customer_0:6001,db_customer_1:6001,db_customer_2:6001,db_customer_3:6001,db_customer_4:6001",
+        "--product-members",
+        "db_product_0:6002,db_product_1:6002,db_product_2:6002,db_product_3:6002,db_product_4:6002",
+        "--soap-wsdl",
+        "http://soap_financial:8008/?wsdl",
+      ]
+    depends_on:
+      - db_customer_0
+      - db_customer_1
+      - db_customer_2
+      - db_customer_3
+      - db_customer_4
+      - db_product_0
+      - db_product_1
+      - db_product_2
+      - db_product_3
+      - db_product_4
+      - soap_financial
+    ports:
+      - "6302:6003"
+
+  server_buyer_3:
+    build:
+      context: .
+      dockerfile: server_buyer/Dockerfile
+    command:
+      [
+        "python3",
+        "server_buyer/buyer_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6003",
+        "--customer-members",
+        "db_customer_0:6001,db_customer_1:6001,db_customer_2:6001,db_customer_3:6001,db_customer_4:6001",
+        "--product-members",
+        "db_product_0:6002,db_product_1:6002,db_product_2:6002,db_product_3:6002,db_product_4:6002",
+        "--soap-wsdl",
+        "http://soap_financial:8008/?wsdl",
+      ]
+    depends_on:
+      - db_customer_0
+      - db_customer_1
+      - db_customer_2
+      - db_customer_3
+      - db_customer_4
+      - db_product_0
+      - db_product_1
+      - db_product_2
+      - db_product_3
+      - db_product_4
+      - soap_financial
+    ports:
+      - "6303:6003"
+
+  server_buyer_4:
+    build:
+      context: .
+      dockerfile: server_buyer/Dockerfile
+    command:
+      [
+        "python3",
+        "server_buyer/buyer_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6003",
+        "--customer-members",
+        "db_customer_0:6001,db_customer_1:6001,db_customer_2:6001,db_customer_3:6001,db_customer_4:6001",
+        "--product-members",
+        "db_product_0:6002,db_product_1:6002,db_product_2:6002,db_product_3:6002,db_product_4:6002",
+        "--soap-wsdl",
+        "http://soap_financial:8008/?wsdl",
+      ]
+    depends_on:
+      - db_customer_0
+      - db_customer_1
+      - db_customer_2
+      - db_customer_3
+      - db_customer_4
+      - db_product_0
+      - db_product_1
+      - db_product_2
+      - db_product_3
+      - db_product_4
+      - soap_financial
+    ports:
+      - "6304:6003"
+
+  server_seller_1:
     build:
       context: .
       dockerfile: server_seller/Dockerfile
+    command:
+      [
+        "python3",
+        "server_seller/seller_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6004",
+        "--customer-members",
+        "db_customer_0:6001,db_customer_1:6001,db_customer_2:6001,db_customer_3:6001,db_customer_4:6001",
+        "--product-members",
+        "db_product_0:6002,db_product_1:6002,db_product_2:6002,db_product_3:6002,db_product_4:6002",
+      ]
     depends_on:
-      - db_customer
-      - db_product
+      - db_customer_0
+      - db_customer_1
+      - db_customer_2
+      - db_customer_3
+      - db_customer_4
+      - db_product_0
+      - db_product_1
+      - db_product_2
+      - db_product_3
+      - db_product_4
     ports:
-      - "6004:6004"
+      - "6401:6004"
+
+  server_seller_2:
+    build:
+      context: .
+      dockerfile: server_seller/Dockerfile
+    command:
+      [
+        "python3",
+        "server_seller/seller_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6004",
+        "--customer-members",
+        "db_customer_0:6001,db_customer_1:6001,db_customer_2:6001,db_customer_3:6001,db_customer_4:6001",
+        "--product-members",
+        "db_product_0:6002,db_product_1:6002,db_product_2:6002,db_product_3:6002,db_product_4:6002",
+      ]
+    depends_on:
+      - db_customer_0
+      - db_customer_1
+      - db_customer_2
+      - db_customer_3
+      - db_customer_4
+      - db_product_0
+      - db_product_1
+      - db_product_2
+      - db_product_3
+      - db_product_4
+    ports:
+      - "6402:6004"
+
+  server_seller_3:
+    build:
+      context: .
+      dockerfile: server_seller/Dockerfile
+    command:
+      [
+        "python3",
+        "server_seller/seller_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6004",
+        "--customer-members",
+        "db_customer_0:6001,db_customer_1:6001,db_customer_2:6001,db_customer_3:6001,db_customer_4:6001",
+        "--product-members",
+        "db_product_0:6002,db_product_1:6002,db_product_2:6002,db_product_3:6002,db_product_4:6002",
+      ]
+    depends_on:
+      - db_customer_0
+      - db_customer_1
+      - db_customer_2
+      - db_customer_3
+      - db_customer_4
+      - db_product_0
+      - db_product_1
+      - db_product_2
+      - db_product_3
+      - db_product_4
+    ports:
+      - "6403:6004"
+
+  server_seller_4:
+    build:
+      context: .
+      dockerfile: server_seller/Dockerfile
+    command:
+      [
+        "python3",
+        "server_seller/seller_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6004",
+        "--customer-members",
+        "db_customer_0:6001,db_customer_1:6001,db_customer_2:6001,db_customer_3:6001,db_customer_4:6001",
+        "--product-members",
+        "db_product_0:6002,db_product_1:6002,db_product_2:6002,db_product_3:6002,db_product_4:6002",
+      ]
+    depends_on:
+      - db_customer_0
+      - db_customer_1
+      - db_customer_2
+      - db_customer_3
+      - db_customer_4
+      - db_product_0
+      - db_product_1
+      - db_product_2
+      - db_product_3
+      - db_product_4
+    ports:
+      - "6404:6004"
 
   client_buyer:
     build:
       context: .
       dockerfile: client_buyer/Dockerfile
     depends_on:
-      - server_buyer
+      - server_buyer_1
+      - server_buyer_2
+      - server_buyer_3
+      - server_buyer_4
     profiles: ["cli"]
     stdin_open: true
     tty: true
@@ -49,7 +522,10 @@ services:
       context: .
       dockerfile: client_seller/Dockerfile
     depends_on:
-      - server_seller
+      - server_seller_1
+      - server_seller_2
+      - server_seller_3
+      - server_seller_4
     profiles: ["cli"]
     stdin_open: true
     tty: true
@@ -60,3 +536,15 @@ services:
       dockerfile: soap/Dockerfile
     ports:
       - "8008:8008"
+
+volumes:
+  customer_db_0:
+  customer_db_1:
+  customer_db_2:
+  customer_db_3:
+  customer_db_4:
+  product_db_0:
+  product_db_1:
+  product_db_2:
+  product_db_3:
+  product_db_4:

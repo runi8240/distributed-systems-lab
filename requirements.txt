@@ -5,3 +5,4 @@ spyne>=2.14.0
 lxml>=5.2.0
 flask>=3.0.0
 zeep>=4.3.1
+pysyncobj>=0.3.14

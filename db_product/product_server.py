@@ -4,7 +4,7 @@ import sys
 import threading
 import time
 from concurrent import futures
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 _ROOT = os.path.dirname(os.path.dirname(__file__))
 if _ROOT not in sys.path:
@@ -16,6 +16,11 @@ except ModuleNotFoundError as exc:
     raise RuntimeError("grpcio is required. Install dependencies from requirements.txt.") from exc
 
 try:
+    from pysyncobj import SyncObj, SyncObjConf, replicated
+except ModuleNotFoundError as exc:
+    raise RuntimeError("pysyncobj is required. Install it before running the replicated product database.") from exc
+
+try:
     from common.grpc_gen import marketplace_pb2 as pb
     from common.grpc_gen import marketplace_pb2_grpc as pb_grpc
 except ModuleNotFoundError as exc:
@@ -25,9 +30,10 @@ except ModuleNotFoundError as exc:
 
 MAX_KEYWORDS = 5
 MAX_KEYWORD_LEN = 8
+RAFT_SYNC_TIMEOUT_SEC = 10.0
 
 
-def _ok(req, data=None):
+def _ok(req: Dict[str, Any], data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return {
         "type": "Response",
         "request_id": req.get("request_id"),
@@ -37,7 +43,7 @@ def _ok(req, data=None):
     }
 
 
-def _err(req, code, message):
+def _err(req: Dict[str, Any], code: str, message: str) -> Dict[str, Any]:
     return {
         "type": "Response",
         "request_id": req.get("request_id"),
@@ -47,17 +53,36 @@ def _err(req, code, message):
     }
 
 
-def _assign_item_id(conn: sqlite3.Connection, category: int) -> str:
+def _status_from_resp(resp: Dict[str, Any]) -> pb.Status:
+    if resp.get("ok"):
+        return pb.Status(ok=True)
+    err = resp.get("error") or {}
+    return pb.Status(
+        ok=False,
+        error=pb.Error(
+            code=str(err.get("code", "INTERNAL")),
+            message=str(err.get("message", "request failed")),
+        ),
+    )
+
+
+def _validate_keywords(keywords) -> str | None:
+    if not isinstance(keywords, list):
+        return "keywords must be a list"
+    if len(keywords) > MAX_KEYWORDS:
+        return f"keywords must have at most {MAX_KEYWORDS} entries"
+    for k in keywords:
+        if not isinstance(k, str):
+            return "each keyword must be a string"
+        if len(k) > MAX_KEYWORD_LEN:
+            return f"keyword '{k}' exceeds {MAX_KEYWORD_LEN} characters"
+    return None
+
+
+def _assign_item_id(conn: sqlite3.Connection, category: int) -> Tuple[str, int]:
     cur = conn.execute("SELECT COALESCE(MAX(seq), 0) FROM items WHERE category = ?", (category,))
     next_seq = int(cur.fetchone()[0]) + 1
     return f"{category}:{next_seq}", next_seq
-
-
-def _keyword_score(item_keywords: List[str], query_keywords: List[str]) -> int:
-    if not query_keywords:
-        return 0
-    item_set = {k.lower() for k in item_keywords}
-    return sum(1 for k in query_keywords if k.lower() in item_set)
 
 
 def _init_db(conn: sqlite3.Connection) -> None:
@@ -92,12 +117,11 @@ def _init_db(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def _get_item_row(conn: sqlite3.Connection, item_id, req):
-    cur = conn.execute("SELECT * FROM items WHERE item_id = ?", (item_id,))
-    row = cur.fetchone()
-    if not row:
-        return None, _err(req, "NOT_FOUND", "item not found")
-    return row, None
+def _keyword_score(item_keywords: List[str], query_keywords: List[str]) -> int:
+    if not query_keywords:
+        return 0
+    item_set = {k.lower() for k in item_keywords}
+    return sum(1 for k in query_keywords if k.lower() in item_set)
 
 
 def _item_keywords(conn: sqlite3.Connection, item_id: str) -> List[str]:
@@ -119,171 +143,19 @@ def _row_to_item(row, keywords: List[str]) -> Dict[str, Any]:
     }
 
 
-def _validate_keywords(keywords) -> str | None:
-    if not isinstance(keywords, list):
-        return "keywords must be a list"
-    if len(keywords) > MAX_KEYWORDS:
-        return f"keywords must have at most {MAX_KEYWORDS} entries"
-    for k in keywords:
-        if not isinstance(k, str):
-            return "each keyword must be a string"
-        if len(k) > MAX_KEYWORD_LEN:
-            return f"keyword '{k}' exceeds {MAX_KEYWORD_LEN} characters"
-    return None
+def _get_item_row(conn: sqlite3.Connection, item_id: str, req: Dict[str, Any]):
+    cur = conn.execute("SELECT * FROM items WHERE item_id = ?", (item_id,))
+    row = cur.fetchone()
+    if not row:
+        return None, _err(req, "NOT_FOUND", "item not found")
+    return row, None
 
 
-def handle_request_factory(state_path: str):
-    conn = sqlite3.connect(state_path, check_same_thread=False)
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    _init_db(conn)
-    lock = threading.Lock()
-
-    def handle(req: Dict[str, Any]):
-        api = req.get("api")
-        data = req.get("data") or {}
-
-        if api == "Ping":
-            return _ok(req, {"now": time.time()})
-
-        if api == "RegisterItem":
-            name = data.get("name")
-            category = data.get("category")
-            keywords = data.get("keywords", [])
-            condition = data.get("condition")
-            price = data.get("price")
-            quantity = data.get("quantity")
-            seller_id = data.get("seller_id")
-            if None in (name, category, condition, price, quantity, seller_id):
-                return _err(req, "INVALID_ARGUMENT", "missing required item fields")
-            kw_err = _validate_keywords(keywords)
-            if kw_err:
-                return _err(req, "INVALID_ARGUMENT", kw_err)
-            with lock:
-                item_id, seq = _assign_item_id(conn, int(category))
-                conn.execute(
-                    """
-                    INSERT INTO items(item_id, name, category, seq, condition, price, quantity, seller_id, feedback_up, feedback_down)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
-                    """,
-                    (item_id, name, int(category), seq, condition, float(price), int(quantity), int(seller_id)),
-                )
-                for kw in keywords:
-                    conn.execute(
-                        "INSERT OR IGNORE INTO item_keywords(item_id, keyword) VALUES (?, ?)",
-                        (item_id, kw),
-                    )
-                conn.commit()
-                return _ok(req, {"item_id": item_id})
-
-        if api == "ChangeItemPrice":
-            item_id = data.get("item_id")
-            price = data.get("price")
-            with lock:
-                row, err = _get_item_row(conn, item_id, req)
-                if err:
-                    return err
-                conn.execute("UPDATE items SET price = ? WHERE item_id = ?", (float(price), item_id))
-                conn.commit()
-                return _ok(req, {"item_id": item_id, "price": float(price)})
-
-        if api == "UpdateUnitsForSale":
-            item_id = data.get("item_id")
-            quantity_delta = data.get("quantity_delta")
-            if item_id is None or quantity_delta is None:
-                return _err(req, "INVALID_ARGUMENT", "item_id and quantity_delta required")
-            with lock:
-                row, err = _get_item_row(conn, item_id, req)
-                if err:
-                    return err
-                new_qty = int(row[6]) + int(quantity_delta)
-                if new_qty < 0:
-                    return _err(req, "INVALID_ARGUMENT", "quantity cannot be negative")
-                conn.execute("UPDATE items SET quantity = ? WHERE item_id = ?", (new_qty, item_id))
-                conn.commit()
-                return _ok(req, {"item_id": item_id, "quantity": new_qty})
-
-        if api == "DisplayItemsForSale":
-            seller_id = int(data.get("seller_id"))
-            with lock:
-                cur = conn.execute("SELECT * FROM items WHERE seller_id = ?", (seller_id,))
-                items = []
-                for row in cur.fetchall():
-                    items.append(_row_to_item(row, _item_keywords(conn, row[0])))
-                return _ok(req, {"items": items})
-
-        if api == "SearchItems":
-            category = data.get("category")
-            keywords = data.get("keywords", [])
-            if not keywords:
-                return _err(req, "INVALID_ARGUMENT", "keywords required")
-            kw_err = _validate_keywords(keywords)
-            if kw_err:
-                return _err(req, "INVALID_ARGUMENT", kw_err)
-            with lock:
-                if category is None:
-                    cur = conn.execute("SELECT * FROM items WHERE quantity > 0")
-                else:
-                    cur = conn.execute(
-                        "SELECT * FROM items WHERE quantity > 0 AND category = ?",
-                        (int(category),),
-                    )
-                matches = []
-                for row in cur.fetchall():
-                    kws = _item_keywords(conn, row[0])
-                    score = _keyword_score(kws, keywords)
-                    if score == 0:
-                        continue
-                    matches.append((score, _row_to_item(row, kws)))
-                matches.sort(key=lambda t: t[0], reverse=True)
-                return _ok(req, {"items": [m[1] for m in matches]})
-
-        if api == "GetItem":
-            item_id = data.get("item_id")
-            with lock:
-                row, err = _get_item_row(conn, item_id, req)
-                if err:
-                    return err
-                return _ok(req, {"item": _row_to_item(row, _item_keywords(conn, item_id))})
-
-        if api == "ProvideFeedback":
-            item_id = data.get("item_id")
-            vote = data.get("vote")  # "up" or "down"
-            if vote not in ("up", "down"):
-                return _err(req, "INVALID_ARGUMENT", "vote must be up or down")
-            with lock:
-                row, err = _get_item_row(conn, item_id, req)
-                if err:
-                    return err
-                if vote == "up":
-                    conn.execute("UPDATE items SET feedback_up = feedback_up + 1 WHERE item_id = ?", (item_id,))
-                    feedback = {"up": int(row[8]) + 1, "down": int(row[9])}
-                else:
-                    conn.execute("UPDATE items SET feedback_down = feedback_down + 1 WHERE item_id = ?", (item_id,))
-                    feedback = {"up": int(row[8]), "down": int(row[9]) + 1}
-                conn.commit()
-                return _ok(req, {"item_id": item_id, "feedback": feedback})
-
-        if api == "CheckAvailability":
-            item_id = data.get("item_id")
-            qty = int(data.get("quantity", 0))
-            with lock:
-                row, err = _get_item_row(conn, item_id, req)
-                if err:
-                    return err
-                available = int(row[6])
-                return _ok(req, {"available": available, "ok": available >= qty})
-
-        return _err(req, "UNIMPLEMENTED", f"unknown api {api}")
-
-    return handle
-
-
-def _status_from_resp(resp: Dict[str, Any]) -> pb.Status:
-    if resp.get("ok"):
-        return pb.Status(ok=True)
-    err = resp.get("error") or {}
-    return pb.Status(ok=False, error=pb.Error(code=str(err.get("code", "INTERNAL")), message=str(err.get("message", "request failed"))))
+def _parse_members(members_arg: str) -> List[str]:
+    members = [part.strip() for part in members_arg.split(",") if part.strip()]
+    if len(members) != 5:
+        raise ValueError("--members must contain exactly 5 entries")
+    return members
 
 
 def _to_item_msg(item: Dict[str, Any]) -> pb.Item:
@@ -301,47 +173,223 @@ def _to_item_msg(item: Dict[str, Any]) -> pb.Item:
     )
 
 
-class ProductDBServicer(pb_grpc.ProductDBServiceServicer):
-    def __init__(self, state_path: str):
-        self._handle = handle_request_factory(state_path)
+class ReplicatedProductDB(SyncObj):
+    def __init__(self, self_addr: str, partner_addrs: List[str], state_path: str):
+        os.makedirs(os.path.dirname(state_path) or ".", exist_ok=True)
 
-    def _call(self, api: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        return self._handle({"type": "Request", "request_id": None, "api": api, "data": data})
+        self._state_path = state_path
+        self._db_lock = threading.Lock()
+        self._conn = sqlite3.connect(state_path, check_same_thread=False)
+        self._conn.execute("PRAGMA foreign_keys = ON")
+        self._conn.execute("PRAGMA journal_mode = WAL")
+        _init_db(self._conn)
+
+        conf = SyncObjConf(
+            dynamicMembershipChange=False,
+            fullDumpFile=f"{state_path}.raft",
+        )
+        super().__init__(self_addr, partner_addrs, conf=conf)
+
+    def close(self) -> None:
+        with self._db_lock:
+            self._conn.close()
+
+    def ping(self) -> Dict[str, Any]:
+        return _ok({"request_id": None}, {"now": time.time()})
+
+    def get_item(self, item_id: str) -> Dict[str, Any]:
+        req = {"request_id": None}
+        with self._db_lock:
+            row, err = _get_item_row(self._conn, item_id, req)
+            if err:
+                return err
+            return _ok(req, {"item": _row_to_item(row, _item_keywords(self._conn, item_id))})
+
+    def display_items_for_sale(self, seller_id: int) -> Dict[str, Any]:
+        req = {"request_id": None}
+        with self._db_lock:
+            cur = self._conn.execute("SELECT * FROM items WHERE seller_id = ?", (int(seller_id),))
+            items = [_row_to_item(row, _item_keywords(self._conn, row[0])) for row in cur.fetchall()]
+            return _ok(req, {"items": items})
+
+    def search_items(self, category: Optional[int], keywords: List[str]) -> Dict[str, Any]:
+        req = {"request_id": None}
+        if not keywords:
+            return _err(req, "INVALID_ARGUMENT", "keywords required")
+        kw_err = _validate_keywords(keywords)
+        if kw_err:
+            return _err(req, "INVALID_ARGUMENT", kw_err)
+
+        with self._db_lock:
+            if category is None:
+                cur = self._conn.execute("SELECT * FROM items WHERE quantity > 0")
+            else:
+                cur = self._conn.execute(
+                    "SELECT * FROM items WHERE quantity > 0 AND category = ?",
+                    (int(category),),
+                )
+            matches = []
+            for row in cur.fetchall():
+                kws = _item_keywords(self._conn, row[0])
+                score = _keyword_score(kws, keywords)
+                if score == 0:
+                    continue
+                matches.append((score, _row_to_item(row, kws)))
+            matches.sort(key=lambda item: item[0], reverse=True)
+            return _ok(req, {"items": [item for _, item in matches]})
+
+    def check_availability(self, item_id: str, quantity: int) -> Dict[str, Any]:
+        req = {"request_id": None}
+        with self._db_lock:
+            row, err = _get_item_row(self._conn, item_id, req)
+            if err:
+                return err
+            available = int(row[6])
+            return _ok(req, {"available": available, "ok": available >= int(quantity)})
+
+    @replicated
+    def register_item(self, name: str, category: int, keywords: List[str], condition: str, price: float, quantity: int, seller_id: int) -> Dict[str, Any]:
+        req = {"request_id": None}
+        kw_err = _validate_keywords(keywords)
+        if kw_err:
+            return _err(req, "INVALID_ARGUMENT", kw_err)
+
+        with self._db_lock:
+            item_id, seq = _assign_item_id(self._conn, int(category))
+            self._conn.execute(
+                """
+                INSERT INTO items(item_id, name, category, seq, condition, price, quantity, seller_id, feedback_up, feedback_down)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+                """,
+                (item_id, name, int(category), seq, condition, float(price), int(quantity), int(seller_id)),
+            )
+            for keyword in keywords:
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO item_keywords(item_id, keyword) VALUES (?, ?)",
+                    (item_id, keyword),
+                )
+            self._conn.commit()
+            return _ok(req, {"item_id": item_id})
+
+    @replicated
+    def change_item_price(self, item_id: str, price: float) -> Dict[str, Any]:
+        req = {"request_id": None}
+        with self._db_lock:
+            row, err = _get_item_row(self._conn, item_id, req)
+            if err:
+                return err
+            self._conn.execute("UPDATE items SET price = ? WHERE item_id = ?", (float(price), item_id))
+            self._conn.commit()
+            return _ok(req, {"item_id": item_id, "price": float(price)})
+
+    @replicated
+    def update_units_for_sale(self, item_id: str, quantity_delta: int) -> Dict[str, Any]:
+        req = {"request_id": None}
+        with self._db_lock:
+            row, err = _get_item_row(self._conn, item_id, req)
+            if err:
+                return err
+            new_qty = int(row[6]) + int(quantity_delta)
+            if new_qty < 0:
+                return _err(req, "INVALID_ARGUMENT", "quantity cannot be negative")
+            self._conn.execute("UPDATE items SET quantity = ? WHERE item_id = ?", (new_qty, item_id))
+            self._conn.commit()
+            return _ok(req, {"item_id": item_id, "quantity": new_qty})
+
+    @replicated
+    def provide_feedback(self, item_id: str, vote: str) -> Dict[str, Any]:
+        req = {"request_id": None}
+        if vote not in ("up", "down"):
+            return _err(req, "INVALID_ARGUMENT", "vote must be up or down")
+
+        with self._db_lock:
+            row, err = _get_item_row(self._conn, item_id, req)
+            if err:
+                return err
+            if vote == "up":
+                self._conn.execute("UPDATE items SET feedback_up = feedback_up + 1 WHERE item_id = ?", (item_id,))
+                feedback = {"up": int(row[8]) + 1, "down": int(row[9])}
+            else:
+                self._conn.execute("UPDATE items SET feedback_down = feedback_down + 1 WHERE item_id = ?", (item_id,))
+                feedback = {"up": int(row[8]), "down": int(row[9]) + 1}
+            self._conn.commit()
+            return _ok(req, {"item_id": item_id, "feedback": feedback})
+
+
+class ProductDBServicer(pb_grpc.ProductDBServiceServicer):
+    def __init__(self, replicated_db: ReplicatedProductDB):
+        self._db = replicated_db
+
+    def _leader_error(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        if not self._db.isReady():
+            return _err(req, "RAFT_NOT_READY", "raft node is not ready")
+        if self._db._isLeader():
+            return _ok(req)
+
+        leader = self._db._getLeader()
+        leader_text = str(leader) if leader is not None else ""
+        if leader_text:
+            return _err(req, "NOT_LEADER", f"current leader is {leader_text}")
+        return _err(req, "NOT_LEADER", "no raft leader is currently known")
+
+    def _require_leader_for_write(self, req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        status = self._leader_error(req)
+        if status.get("ok"):
+            return None
+        return status
 
     def Ping(self, _request, _context):
-        out = self._call("Ping", {})
+        out = self._db.ping()
         return pb.PingResponse(status=_status_from_resp(out), now=float((out.get("data") or {}).get("now", 0.0)))
 
     def RegisterItem(self, request, _context):
-        out = self._call(
-            "RegisterItem",
-            {
-                "name": request.name,
-                "category": int(request.category),
-                "keywords": list(request.keywords),
-                "condition": request.condition,
-                "price": float(request.price),
-                "quantity": int(request.quantity),
-                "seller_id": int(request.seller_id),
-            },
-        )
+        req = {"request_id": None}
+        if None in (request.name, request.category, request.condition, request.price, request.quantity, request.seller_id):
+            out = _err(req, "INVALID_ARGUMENT", "missing required item fields")
+        else:
+            out = self._require_leader_for_write(req)
+            if out is None:
+                out = self._db.register_item(
+                    request.name,
+                    int(request.category),
+                    list(request.keywords),
+                    request.condition,
+                    float(request.price),
+                    int(request.quantity),
+                    int(request.seller_id),
+                    sync=True,
+                    timeout=RAFT_SYNC_TIMEOUT_SEC,
+                )
         return pb.RegisterItemResponse(status=_status_from_resp(out), item_id=str((out.get("data") or {}).get("item_id", "")))
 
     def ChangeItemPrice(self, request, _context):
-        out = self._call("ChangeItemPrice", {"item_id": request.item_id, "price": float(request.price)})
+        req = {"request_id": None}
+        out = self._require_leader_for_write(req)
+        if out is None:
+            out = self._db.change_item_price(
+                request.item_id,
+                float(request.price),
+                sync=True,
+                timeout=RAFT_SYNC_TIMEOUT_SEC,
+            )
         data = out.get("data") or {}
         return pb.ChangeItemPriceResponse(status=_status_from_resp(out), item_id=str(data.get("item_id", "")), price=float(data.get("price", 0.0)))
 
     def UpdateUnitsForSale(self, request, _context):
-        out = self._call(
-            "UpdateUnitsForSale",
-            {"item_id": request.item_id, "quantity_delta": int(request.quantity_delta)},
-        )
+        req = {"request_id": None}
+        out = self._require_leader_for_write(req)
+        if out is None:
+            out = self._db.update_units_for_sale(
+                request.item_id,
+                int(request.quantity_delta),
+                sync=True,
+                timeout=RAFT_SYNC_TIMEOUT_SEC,
+            )
         data = out.get("data") or {}
         return pb.UpdateUnitsForSaleResponse(status=_status_from_resp(out), item_id=str(data.get("item_id", "")), quantity=int(data.get("quantity", 0)))
 
     def DisplayItemsForSale(self, request, _context):
-        out = self._call("DisplayItemsForSale", {"seller_id": int(request.seller_id)})
+        out = self._db.display_items_for_sale(int(request.seller_id))
         items = []
         if out.get("ok"):
             items = [_to_item_msg(item) for item in ((out.get("data") or {}).get("items", []) or [])]
@@ -349,24 +397,29 @@ class ProductDBServicer(pb_grpc.ProductDBServiceServicer):
 
     def SearchItems(self, request, _context):
         category = int(request.category) if request.include_category else None
-        out = self._call(
-            "SearchItems",
-            {"category": category, "keywords": list(request.keywords)},
-        )
+        out = self._db.search_items(category, list(request.keywords))
         items = []
         if out.get("ok"):
             items = [_to_item_msg(item) for item in ((out.get("data") or {}).get("items", []) or [])]
         return pb.SearchItemsResponse(status=_status_from_resp(out), items=items)
 
     def GetItem(self, request, _context):
-        out = self._call("GetItem", {"item_id": request.item_id})
+        out = self._db.get_item(request.item_id)
         item = pb.Item()
         if out.get("ok"):
             item = _to_item_msg((out.get("data") or {}).get("item", {}))
         return pb.GetItemResponse(status=_status_from_resp(out), item=item)
 
     def ProvideFeedback(self, request, _context):
-        out = self._call("ProvideFeedback", {"item_id": request.item_id, "vote": request.vote})
+        req = {"request_id": None}
+        out = self._require_leader_for_write(req)
+        if out is None:
+            out = self._db.provide_feedback(
+                request.item_id,
+                request.vote,
+                sync=True,
+                timeout=RAFT_SYNC_TIMEOUT_SEC,
+            )
         data = out.get("data") or {}
         feedback = data.get("feedback") or {}
         return pb.ProvideFeedbackResponse(
@@ -376,7 +429,7 @@ class ProductDBServicer(pb_grpc.ProductDBServiceServicer):
         )
 
     def CheckAvailability(self, request, _context):
-        out = self._call("CheckAvailability", {"item_id": request.item_id, "quantity": int(request.quantity)})
+        out = self._db.check_availability(request.item_id, int(request.quantity))
         data = out.get("data") or {}
         return pb.CheckAvailabilityResponse(
             status=_status_from_resp(out),
@@ -391,14 +444,32 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=6002)
-    parser.add_argument("--state", default="db_product/state.db")
+    parser.add_argument("--state", default="/app/data/product.db")
+    parser.add_argument("--node-id", type=int, required=True)
+    parser.add_argument(
+        "--members",
+        required=True,
+        help="Comma-separated list of 5 Raft member addresses as HOST:PORT ordered by node id",
+    )
     args = parser.parse_args()
 
+    members = _parse_members(args.members)
+    if args.node_id < 0 or args.node_id >= len(members):
+        raise ValueError("--node-id is out of range for the provided --members list")
+
+    self_addr = members[args.node_id]
+    partner_addrs = [addr for idx, addr in enumerate(members) if idx != args.node_id]
+    replicated_db = ReplicatedProductDB(self_addr, partner_addrs, args.state)
+
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=32))
-    pb_grpc.add_ProductDBServiceServicer_to_server(ProductDBServicer(args.state), server)
+    pb_grpc.add_ProductDBServiceServicer_to_server(ProductDBServicer(replicated_db), server)
     server.add_insecure_port(f"{args.host}:{args.port}")
     server.start()
-    server.wait_for_termination()
+
+    try:
+        server.wait_for_termination()
+    finally:
+        replicated_db.close()
 
 
 if __name__ == "__main__":

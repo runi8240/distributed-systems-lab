@@ -1,0 +1,132 @@
+services:
+  db_customer_0:
+    build:
+      context: .
+      dockerfile: db_customer/Dockerfile
+    command:
+      [
+        "python3",
+        "db_customer/customer_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6001",
+        "--state",
+        "/app/data/customer.db",
+        "--node-id",
+        "0",
+        "--members",
+        "db_customer_0:7000,db_customer_1:7001,db_customer_2:7002,db_customer_3:7003,db_customer_4:7004",
+      ]
+    ports:
+      - "6101:6001"
+      - "7100:7000/udp"
+    volumes:
+      - customer_db_0:/app/data
+
+  db_customer_1:
+    build:
+      context: .
+      dockerfile: db_customer/Dockerfile
+    command:
+      [
+        "python3",
+        "db_customer/customer_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6001",
+        "--state",
+        "/app/data/customer.db",
+        "--node-id",
+        "1",
+        "--members",
+        "db_customer_0:7000,db_customer_1:7001,db_customer_2:7002,db_customer_3:7003,db_customer_4:7004",
+      ]
+    ports:
+      - "6102:6001"
+      - "7101:7001/udp"
+    volumes:
+      - customer_db_1:/app/data
+
+  db_customer_2:
+    build:
+      context: .
+      dockerfile: db_customer/Dockerfile
+    command:
+      [
+        "python3",
+        "db_customer/customer_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6001",
+        "--state",
+        "/app/data/customer.db",
+        "--node-id",
+        "2",
+        "--members",
+        "db_customer_0:7000,db_customer_1:7001,db_customer_2:7002,db_customer_3:7003,db_customer_4:7004",
+      ]
+    ports:
+      - "6103:6001"
+      - "7102:7002/udp"
+    volumes:
+      - customer_db_2:/app/data
+
+  db_customer_3:
+    build:
+      context: .
+      dockerfile: db_customer/Dockerfile
+    command:
+      [
+        "python3",
+        "db_customer/customer_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6001",
+        "--state",
+        "/app/data/customer.db",
+        "--node-id",
+        "3",
+        "--members",
+        "db_customer_0:7000,db_customer_1:7001,db_customer_2:7002,db_customer_3:7003,db_customer_4:7004",
+      ]
+    ports:
+      - "6104:6001"
+      - "7103:7003/udp"
+    volumes:
+      - customer_db_3:/app/data
+
+  db_customer_4:
+    build:
+      context: .
+      dockerfile: db_customer/Dockerfile
+    command:
+      [
+        "python3",
+        "db_customer/customer_server.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "6001",
+        "--state",
+        "/app/data/customer.db",
+        "--node-id",
+        "4",
+        "--members",
+        "db_customer_0:7000,db_customer_1:7001,db_customer_2:7002,db_customer_3:7003,db_customer_4:7004",
+      ]
+    ports:
+      - "6105:6001"
+      - "7104:7004/udp"
+    volumes:
+      - customer_db_4:/app/data
+
+volumes:
+  customer_db_0:
+  customer_db_1:
+  customer_db_2:
+  customer_db_3:
+  customer_db_4:

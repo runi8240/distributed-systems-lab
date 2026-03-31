@@ -1,7 +1,7 @@
 import os
 import sys
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, List, Sequence, Tuple
 
 from flask import Flask, jsonify, request
 
@@ -27,10 +27,21 @@ def _resp_to_http(resp: Dict[str, Any]):
     return jsonify({"ok": False, "data": None, "error": err}), status
 
 
-def create_app(customer_host: str, customer_port: int, product_host: str, product_port: int) -> Flask:
+def _parse_members_arg(value: str) -> List[Tuple[str, int]]:
+    members: List[Tuple[str, int]] = []
+    for raw in value.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        host, port = raw.rsplit(":", 1)
+        members.append((host, int(port)))
+    return members
+
+
+def create_app(customer_members: Sequence[Tuple[str, int]], product_members: Sequence[Tuple[str, int]]) -> Flask:
     app = Flask(__name__)
-    customer_db = CustomerDBClient(customer_host, customer_port)
-    product_db = ProductDBClient(product_host, product_port)
+    customer_db = CustomerDBClient(customer_members[0][0], customer_members[0][1], members=customer_members)
+    product_db = ProductDBClient(product_members[0][0], product_members[0][1], members=product_members)
 
     def request_id() -> str:
         return request.headers.get("X-Request-Id", str(uuid.uuid4()))
@@ -120,9 +131,14 @@ def main():
     parser.add_argument("--customer-port", type=int, default=6001)
     parser.add_argument("--product-host", default="127.0.0.1")
     parser.add_argument("--product-port", type=int, default=6002)
+    parser.add_argument("--customer-members", default="")
+    parser.add_argument("--product-members", default="")
     args = parser.parse_args()
 
-    app = create_app(args.customer_host, args.customer_port, args.product_host, args.product_port)
+    customer_members = _parse_members_arg(args.customer_members) if args.customer_members else [(args.customer_host, args.customer_port)]
+    product_members = _parse_members_arg(args.product_members) if args.product_members else [(args.product_host, args.product_port)]
+
+    app = create_app(customer_members, product_members)
     app.run(host=args.host, port=args.port)
 
 

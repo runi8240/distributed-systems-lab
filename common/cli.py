@@ -3,7 +3,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 
 def _http_json(
@@ -34,6 +34,67 @@ def _http_json(
             except json.JSONDecodeError:
                 return int(exc.code), {"ok": False, "error": {"code": "HTTP_ERROR", "message": raw}, "data": None}
         return int(exc.code), {"ok": False, "error": {"code": "HTTP_ERROR", "message": str(exc)}, "data": None}
+
+
+def _parse_replicas_arg(replicas: str) -> List[Tuple[str, int]]:
+    endpoints: List[Tuple[str, int]] = []
+    for raw in replicas.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        if ":" not in raw:
+            raise ValueError(f"invalid replica '{raw}', expected host:port")
+        host, port_str = raw.rsplit(":", 1)
+        endpoints.append((host.strip(), int(port_str)))
+    if not endpoints:
+        raise ValueError("at least one replica is required")
+    return endpoints
+
+
+class ReplicaHttpClient:
+    def __init__(self, replicas: Sequence[Tuple[str, int]], *, retries: int = 3, timeout: float = 10.0):
+        if not replicas:
+            raise ValueError("at least one replica is required")
+        self._replicas = [(str(host), int(port)) for host, port in replicas]
+        self._last_known = 0
+        self._retries = int(retries)
+        self._timeout = float(timeout)
+
+    def _ordered_replicas(self) -> List[Tuple[str, int]]:
+        ordered: List[Tuple[str, int]] = []
+        for offset in range(len(self._replicas)):
+            ordered.append(self._replicas[(self._last_known + offset) % len(self._replicas)])
+        return ordered
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        data: Dict[str, Any] | None = None,
+    ) -> Tuple[int, Dict[str, Any], Tuple[str, int]]:
+        last_exc: Exception | None = None
+        attempts = 0
+
+        while attempts < self._retries:
+            for idx, replica in enumerate(self._ordered_replicas()):
+                attempts += 1
+                host, port = replica
+                try:
+                    status, resp = _http_json(host, port, method, path, data, timeout=self._timeout)
+                    self._last_known = self._replicas.index(replica)
+                    return status, resp, replica
+                except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                    last_exc = exc
+                    print(f"request to replica {host}:{port} failed: {exc}")
+                    self._last_known = (self._replicas.index(replica) + 1) % len(self._replicas)
+                    if attempts >= self._retries:
+                        break
+            if attempts < self._retries:
+                continue
+
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("request failed without an exception")
 
 
 def _with_query(path: str, params: Dict[str, Any]) -> str:
@@ -131,10 +192,12 @@ def _map_api(role: str, api: str, data: Dict[str, Any]) -> Tuple[str, str, Dict[
     raise ValueError(f"unsupported role: {role}")
 
 
-def repl(host: str, port: int, role: str):
+def repl(replicas: Sequence[Tuple[str, int]], role: str):
     session_id = None
+    http_client = ReplicaHttpClient(replicas)
 
-    print(f"Connected to http://{host}:{port} as {role} client")
+    replica_text = ", ".join(f"{host}:{port}" for host, port in replicas)
+    print(f"Connected to frontend replicas [{replica_text}] as {role} client")
     print("Commands: help, create <name> <password>, login <name> <password>, logout, api <API> <json>, makepurchase, session <id>, exit")
 
     while True:
@@ -210,12 +273,12 @@ def repl(host: str, port: int, role: str):
             continue
 
         try:
-            status, resp = _http_json(host, port, method, path, body)
+            status, resp, replica = http_client.request(method, path, body)
         except Exception as exc:
             print(f"error: {exc}")
             continue
 
-        print(json.dumps({"status": status, "response": resp}, indent=2))
+        print(json.dumps({"replica": f"{replica[0]}:{replica[1]}", "status": status, "response": resp}, indent=2))
         if api == "Login" and (resp or {}).get("ok"):
             session_id = (resp.get("data") or {}).get("session_id")
             print(f"session_id set to {session_id}")
@@ -225,9 +288,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--replicas", default="")
     parser.add_argument("--role", required=True, choices=["buyer", "seller"])
     args = parser.parse_args()
-    repl(args.host, args.port, args.role)
+    if args.replicas:
+        replicas = _parse_replicas_arg(args.replicas)
+    else:
+        replicas = [(args.host, args.port)]
+    repl(replicas, args.role)
 
 
 if __name__ == "__main__":
