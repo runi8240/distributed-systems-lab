@@ -1,9 +1,11 @@
 import os
+import json
 import sqlite3
 import sys
 import threading
 import time
 from concurrent import futures
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional, Tuple
 
 _ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -177,6 +179,7 @@ class ReplicatedProductDB(SyncObj):
     def __init__(self, self_addr: str, partner_addrs: List[str], state_path: str):
         os.makedirs(os.path.dirname(state_path) or ".", exist_ok=True)
 
+        self._self_addr = self_addr
         self._state_path = state_path
         self._db_lock = threading.Lock()
         self._conn = sqlite3.connect(state_path, check_same_thread=False)
@@ -438,12 +441,68 @@ class ProductDBServicer(pb_grpc.ProductDBServiceServicer):
         )
 
 
+class _StatusHandler(BaseHTTPRequestHandler):
+    def __init__(self, *args, replicated_db: ReplicatedProductDB, node_id: int, grpc_addr: str, **kwargs):
+        self._replicated_db = replicated_db
+        self._node_id = int(node_id)
+        self._grpc_addr = grpc_addr
+        super().__init__(*args, **kwargs)
+
+    def log_message(self, _format: str, *_args) -> None:
+        return
+
+    def do_GET(self) -> None:
+        if self.path not in ("/health", "/raft-status"):
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"ok": false, "error": "not found"}')
+            return
+
+        leader = self._replicated_db._getLeader()
+        payload = {
+            "ok": True,
+            "node_id": self._node_id,
+            "grpc_addr": self._grpc_addr,
+            "raft_addr": self._replicated_db._self_addr,
+            "is_ready": bool(self._replicated_db.isReady()),
+            "is_leader": bool(self._replicated_db._isLeader()),
+            "leader_addr": str(leader) if leader is not None else "",
+        }
+        body = (json.dumps(payload) + "\n").encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def _start_status_server(replicated_db: ReplicatedProductDB, node_id: int, host: str, grpc_port: int, status_port: int):
+    bind_host = host if host != "0.0.0.0" else "0.0.0.0"
+    grpc_addr = f"{host}:{grpc_port}"
+
+    def _handler(*args, **kwargs):
+        return _StatusHandler(
+            *args,
+            replicated_db=replicated_db,
+            node_id=node_id,
+            grpc_addr=grpc_addr,
+            **kwargs,
+        )
+
+    status_server = ThreadingHTTPServer((bind_host, status_port), _handler)
+    thread = threading.Thread(target=status_server.serve_forever, daemon=True)
+    thread.start()
+    return status_server
+
+
 def main():
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=6002)
+    parser.add_argument("--status-port", type=int, default=0)
     parser.add_argument("--state", default="/app/data/product.db")
     parser.add_argument("--node-id", type=int, required=True)
     parser.add_argument(
@@ -460,15 +519,18 @@ def main():
     self_addr = members[args.node_id]
     partner_addrs = [addr for idx, addr in enumerate(members) if idx != args.node_id]
     replicated_db = ReplicatedProductDB(self_addr, partner_addrs, args.state)
+    status_port = int(args.status_port) if int(args.status_port) > 0 else int(args.port) + 3000
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=32))
     pb_grpc.add_ProductDBServiceServicer_to_server(ProductDBServicer(replicated_db), server)
     server.add_insecure_port(f"{args.host}:{args.port}")
+    status_server = _start_status_server(replicated_db, args.node_id, args.host, int(args.port), status_port)
     server.start()
 
     try:
         server.wait_for_termination()
     finally:
+        status_server.shutdown()
         replicated_db.close()
 
 

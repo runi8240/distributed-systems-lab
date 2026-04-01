@@ -1,56 +1,80 @@
 # Benchmark scripts
 
-`run_scenarios.py` drives PA2 REST frontends to measure:
-- Average response time (per API call)
-- Average throughput (ops/second)
+`run_scenarios.py` now targets the PA3 replicated deployment. It measures:
+- average response time per client API
+- average throughput per client API
+- success rate / outcome counts for each API
+- normal and failure-mode runs
 
-The script runs the required three scenarios:
+It supports all three load scenarios:
 - Scenario 1: 1 buyer + 1 seller
 - Scenario 2: 10 buyers + 10 sellers
 - Scenario 3: 100 buyers + 100 sellers
 
-Defaults match PA2 requirements: `--runs 10 --ops-per-client 1000`.
+Defaults match the assignment: `--runs 10 --ops-per-client 1000`.
 
 ## Prereqs
 
-- All server components deployed and running
-- Buyer frontend reachable at `http://<buyer-host>:6003`
-- Seller frontend reachable at `http://<seller-host>:6004`
+- Replicated buyer and seller frontends are reachable
+- Failure-mode commands are available if you want the PA3 failure cases automated
+- Product/customer backends are already deployed and healthy behind the frontends
 
-## Run all scenarios (required setup)
+## Scenario 1, no failures
 
 ```bash
 python3 scripts/bench/run_scenarios.py \
-  --buyer-host <BUYER_VM_PUBLIC_IP> \
-  --seller-host <SELLER_VM_PUBLIC_IP>
+  --buyer-replicas 34.30.160.147:6301,34.45.95.133:6302,35.222.98.184:6303,34.170.76.88:6304 \
+  --seller-replicas 34.30.160.147:6401,34.45.95.133:6402,35.222.98.184:6403,34.170.76.88:6404 \
+  --scenario 1 \
+  --failure-mode normal
 ```
 
-## Run selected scenarios
+## Scenario 1, frontend replica failure
 
 ```bash
 python3 scripts/bench/run_scenarios.py \
-  --buyer-host <BUYER_VM_PUBLIC_IP> \
-  --seller-host <SELLER_VM_PUBLIC_IP> \
-  --scenario 1 --scenario 3
+  --buyer-replicas 34.30.160.147:6301,34.45.95.133:6302,35.222.98.184:6303,34.170.76.88:6304 \
+  --seller-replicas 34.30.160.147:6401,34.45.95.133:6402,35.222.98.184:6403,34.170.76.88:6404 \
+  --scenario 1 \
+  --failure-mode frontend_failover \
+  --frontend-failure-start-cmd "gcloud compute ssh pa3-vm-a --zone us-central1-a --command 'pkill -f \"server_buyer/buyer_server.py --host 0.0.0.0 --port 6301\" || true'; gcloud compute ssh pa3-vm-b --zone us-central1-a --command 'pkill -f \"server_seller/seller_server.py --host 0.0.0.0 --port 6402\" || true'" \
+  --frontend-failure-stop-cmd "<restart the stopped buyer and seller replicas>"
 ```
 
-## Custom run count and ops count
+## Scenario 1, product follower failure
 
 ```bash
 python3 scripts/bench/run_scenarios.py \
-  --buyer-host <BUYER_VM_PUBLIC_IP> \
-  --seller-host <SELLER_VM_PUBLIC_IP> \
-  --runs 10 \
-  --ops-per-client 1000
+  --buyer-replicas 34.30.160.147:6301,34.45.95.133:6302,35.222.98.184:6303,34.170.76.88:6304 \
+  --seller-replicas 34.30.160.147:6401,34.45.95.133:6402,35.222.98.184:6403,34.170.76.88:6404 \
+  --scenario 1 \
+  --failure-mode product_follower_fail \
+  --product-follower-failure-start-cmd "<stop one known non-leader product replica>" \
+  --product-follower-failure-stop-cmd "<restart that product replica>"
+```
+
+## Scenario 1, product leader failure
+
+```bash
+python3 scripts/bench/run_scenarios.py \
+  --buyer-replicas 34.30.160.147:6301,34.45.95.133:6302,35.222.98.184:6303,34.170.76.88:6304 \
+  --seller-replicas 34.30.160.147:6401,34.45.95.133:6402,35.222.98.184:6403,34.170.76.88:6404 \
+  --scenario 1 \
+  --failure-mode product_leader_fail \
+  --product-leader-failure-start-cmd "<stop the current product leader replica>" \
+  --product-leader-failure-stop-cmd "<restart that product replica>"
 ```
 
 ## Outputs
 
-The script prints scenario summaries and writes:
-- `scripts/bench/results/pa2_metrics_<timestamp>.json`
-- `scripts/bench/results/pa2_metrics_<timestamp>.md`
+The script writes:
+- `scripts/bench/results/pa3_metrics_<timestamp>.json`
+- `scripts/bench/results/pa3_metrics_<timestamp>.md`
 
-The generated Markdown includes:
-- experiment setup summary
-- result table ready to paste into `REPORT.md`
-- analysis prompts for PA1 vs PA2 comparison text
+The JSON is the full source of record. The Markdown is a condensed table suitable for `REPORT.md` / `README.md`.
+
+## Notes
+
+- The benchmark runs each buyer API and each seller API separately, then reports per-operation metrics.
+- `MakePurchase` may return `PAYMENT_DECLINED` because the SOAP banking service is probabilistic; those responses are counted in the output outcome table.
+- For scenario 1, each measured operation runs with one relevant client of that role.
